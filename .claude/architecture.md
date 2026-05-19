@@ -75,11 +75,9 @@ Estas decisiones se documentan aquí cuando se tomen — no antes.
 
 ## Integración con Radarr
 
-Radarr permite añadir custom lists vía URL JSON. Verificar antes de implementar:
+Mecanismo: **Custom List** (no la API de Radarr). Radarr hace polling a una URL HTTP de watchlistarr y recibe un array JSON de películas con `tmdb_id`. Frecuencia de polling y comportamiento de auto-add se configuran en Radarr, no aquí.
 
-- Formato exacto que Radarr 5.x acepta (probablemente array de objetos con `tmdbId` como mínimo).
-- Si Radarr cachea o pide ETag/Last-Modified — implementarlo para no forzar reimportaciones innecesarias.
-- Si Radarr puede consumir múltiples listas desde un solo host watchlistarr (sí, vía URLs distintas por lista).
+Spec completa, formato JSON, pitfalls y referencias: [`radarr-custom-list.md`](radarr-custom-list.md).
 
 ## Letterboxd: estructura conocida
 
