@@ -25,4 +25,5 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 | [`.claude/letterboxd-lists.md`](.claude/letterboxd-lists.md) | Antes de tocar el scraper de listas — discovery por username, selectores HTML, paginación, resolución de TMDB ID, anti-bot |
 | [`.claude/data-model.md`](.claude/data-model.md) | Antes de tocar la DB o cualquier endpoint que lea/escriba estado — entidades, multi-user, listas combinadas, identidad canónica |
 | [`.claude/sync-strategy.md`](.claude/sync-strategy.md) | Antes de tocar scheduling, scraping o invalidación — frecuencias, política anti-flap, qué fuente actualiza qué |
+| [`.claude/ui-features.md`](.claude/ui-features.md) | Antes de tocar la GUI — catálogo de páginas, acciones y formularios; qué se configura por web y qué por env |
 | [`.claude/workflows.md`](.claude/workflows.md) | Comandos de desarrollo, Docker, deploy, merge a `main`, variables de entorno |

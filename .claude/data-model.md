@@ -15,19 +15,24 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | Tabla | Clave / campos | Notas |
 |---|---|---|
 | `users` | `id` (PK), `letterboxd_username` (unique), `display_name`, `added_at` | Un perfil de Letterboxd = un user en la app |
-| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `sort_order`, `max_items`, `rotation_policy`, `enabled`, `last_synced_at`, `last_sync_status` | Watchlist = lista con `source_type='watchlist'` y `slug='watchlist'` |
-| `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `tmdb_type` (`movie`), `last_resolved_at` | Caché de la resolución HTML → TMDB ID; global, no por user |
+| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status` | Lista parent (fuente). `max_items`/`sort_order`/rotación viven en `sublists`, no aquí. Watchlist = `source_type='watchlist'` y `slug='watchlist'` |
+| `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `tmdb_type` (`movie`), `letterboxd_avg_rating` (nullable), `last_resolved_at` | Caché de la resolución HTML → TMDB ID; global, no por user. Rating Letterboxd persistido si la ficha lo expone |
 | `list_items` | `(list_id, tmdb_id)` (PK), `position`, `added_at`, `last_seen_at`, `pending_removal_count` | `pending_removal_count` para anti-flap (ver [`sync-strategy.md`](sync-strategy.md)) |
+| `sublists` | `id` (PK), `user_id` (FK nullable), `parent_list_id` (FK nullable), `parent_combined_kind` (enum nullable), `slug`, `name`, `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `added_after`, `added_before`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Vista servida con cap/filtros/rotación. Exactamente uno de `parent_list_id` o `parent_combined_kind` debe estar set. Slug único por `(user_id, slug)` o por `(parent_combined_kind, slug)` |
+| `sublist_items` | `(sublist_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas en una sublista. FIFO por `served_since` durante la rotación |
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
-| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos) |
+| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos) |
 
 ## Multi-user
 
 - Cada `list` pertenece a exactamente un `user`.
 - `films` es **global por `tmdb_id`**: dos users que tienen la misma peli comparten la fila.
 - `watched_films` es **por `(user_id, tmdb_id)`**: cada user tiene su propio set de vistos.
-- Las **listas combinadas** (`/all/`) no son filas en `lists` — son queries virtuales sobre `list_items` y `watched_films`, deduplicadas por `tmdb_id`.
+- Las **listas combinadas crudas** (`/all/watchlist/union/`, `/intersection/`, `/union-unwatched/`) no son filas — son queries virtuales sobre `list_items` y `watched_films`.
+- Las **sublistas** (`sublists`) son la única "vista servida" con políticas (cap, filtros, rotación). Pueden tener como parent:
+  - Una lista o watchlist concreta (`parent_list_id`) → URL bajo `/<user>/<slug>/`.
+  - Una combinada virtual (`parent_combined_kind`) → URL bajo `/all/<slug>/`.
 
 ## Listas combinadas (virtuales)
 
@@ -63,18 +68,18 @@ WHERE l.source_type = 'watchlist'
 
 ## Reservas en el espacio de URLs
 
-Como las URLs servidas son `/<user>/<slug>/`, `/<user>/watchlist/` y `/all/<combo>/`, hay que evitar choques:
+Las URLs servidas son `/<user>/<slug>/`, `/<user>/watchlist/`, `/all/watchlist/<combo>/` y `/all/<sublist-slug>/`. Hay que evitar choques.
 
 **Reservados como `<user>`** (no se aceptan como `letterboxd_username` en la app):
-- `all`
-- `api`
-- `admin`
-- `static`
-- `health`
-- `_`
+- `all`, `api`, `admin`, `static`, `health`, `_`.
 
-**Reservados como `<slug>` dentro de un user** (no se aceptan como slug de lista custom):
-- `watchlist` (es el slug del endpoint de la watchlist personal).
+**Reservados como `<slug>` bajo `/<user>/`**:
+- `watchlist` — siempre apunta a la watchlist parent del user.
+
+**Reservados como `<slug>` bajo `/all/`**:
+- `watchlist` — namespace de las 3 combinadas crudas (`/all/watchlist/union/`, etc.). No es válido como slug de sublista bajo `/all/`.
+
+**Espacio de slugs compartido por user**: dentro de un mismo user, listas parent y sublistas comparten namespace de slugs. Si el user tiene una lista parent `watchlist-2010s`, no puede crear una sublista con el mismo slug. La UI valida en el momento de guardar.
 
 **Decisión TBD**: qué hacer si un user tiene una lista custom llamada literalmente `watchlist` en Letterboxd. Sugerencia: añadir sufijo numérico (`watchlist-2`) al servir y al guardar en `lists.slug`. Documentar al implementar.
 

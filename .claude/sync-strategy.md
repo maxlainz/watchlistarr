@@ -15,6 +15,7 @@ Principio rector: **la DB es autoritativa**. Lo que servimos a Radarr nunca se c
 | Lista custom scrape completo | full | `LISTS_FULL_INTERVAL` | 7 d | Eliminaciones + reordenamientos + verificación |
 | `/{user}/films/` página 1 (backstop) | hot | `FILMS_BACKSTOP_INTERVAL` | 24 h | `watched_films` (rellena gaps del RSS, sin fecha) |
 | `/{user}/lists/` (discovery) | discovery | `DISCOVERY_INTERVAL` | 7 d | `lists` (descubre listas nuevas o desaparecidas) |
+| Rotation tick (interno, sin red) | scheduled | `ROTATION_TICK_INTERVAL` | 1 h | `sublist_items` de sublistas cuyo `last_rotated_at + rotation_interval ≤ now` |
 
 **Principio**: RSS-driven en caliente, scrapes incrementales frecuentes para detectar adiciones, scrapes completos espaciados para confirmar todo lo demás.
 
@@ -81,6 +82,29 @@ Cubre el gap conocido del RSS (ventana limitada a ~20-50 items).
   - Upsert en `lists` con `letterboxd_list_id`, `slug`, `name`, `film_count`, `source_type='list'`.
   - Si es una lista nueva, `enabled=false` por defecto — la UI muestra "Lista nueva detectada, ¿activarla?".
 - Listas que existían y ya no aparecen: `enabled=false` (no borrar la fila — el user puede haber tenido razones para tenerla activa).
+
+## Rotation worker
+
+Independiente del scraping — no toca la red. Recorre todas las sublistas con `rotation_enabled = true` cada `ROTATION_TICK_INTERVAL` (default 1 h).
+
+Por cada sublista:
+
+1. Si `last_rotated_at + rotation_interval > now` → skip.
+2. Calcular **pool elegible** = items del parent (o de la combinada) que cumplen los filtros (`min_rating`, `max_year`, `added_after`, etc.) **y** no están actualmente en `sublist_items`.
+3. Si `len(pool) >= rotation_batch_size`:
+   - Sacar las `rotation_batch_size` filas de `sublist_items` con `served_since` más antiguo (FIFO temporal).
+   - Insertar `rotation_batch_size` filas aleatorias del pool con `served_since = now()`.
+4. Si `len(pool) < rotation_batch_size`:
+   - Insertar las que haya. Sacar la misma cantidad de las más antiguas para mantener `max_items` aproximado. Si el pool está vacío, **no sacar nada** (mejor servir menos que servir vacío).
+5. Update `last_rotated_at = now()`.
+
+**Inicialización al crear**: cuando se crea una sublista con `rotation_enabled`, popular `sublist_items` con `max_items` aleatorias del pool elegible y `served_since = now()`. Si la sublista tiene `rotation_enabled = false` pero sí `max_items`, hacer lo mismo (selección random inicial) y dejarla congelada hasta que se edite.
+
+**Recálculo al editar filtros o `max_items`**: síncrono al guardar en la UI:
+- Eliminar de `sublist_items` las que ya no cumplen filtros.
+- Si quedan menos de `max_items`, rellenar desde el pool actual.
+
+**Ortogonalidad con `watched_films`**: el RSS marca pelis como vistas; las sublistas cuyo parent es `union-unwatched` o cuyos filtros excluyen vistas las pierden en la **siguiente rotación**, no al instante. Si en uso real necesitamos retirada inmediata, se añade después como flag por sublista (decisión TBD).
 
 ## Modo "arranque inicial" (cuando se añade un user)
 

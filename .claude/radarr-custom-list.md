@@ -19,17 +19,25 @@ watchlistarr **no** habla con la API de Radarr. La integración es al revés: Ra
 
 ## URL routing en watchlistarr
 
-Multi-user en una sola instancia. Patrones expuestos:
+Multi-user en una sola instancia. Cada URL apunta a una "vista" servida desde DB:
 
 | URL | Significado |
 |---|---|
-| `/<user>/<slug>/` | Lista custom del user, identificada por su slug Letterboxd |
-| `/<user>/watchlist/` | Watchlist personal del user |
-| `/all/watchlist/union/` | Pelis en alguna watchlist (todos los users registrados) |
-| `/all/watchlist/intersection/` | Pelis en TODAS las watchlists |
-| `/all/watchlist/union-unwatched/` | Union, excluyendo pelis ya vistas por al menos un user |
+| `/<user>/<list-slug>/` | Lista parent del user, **cruda** (sin cap, sin rotación) |
+| `/<user>/watchlist/` | Watchlist personal del user, **cruda** |
+| `/<user>/<sublist-slug>/` | **Sublista** del user con filtros / cap / rotación aplicados |
+| `/all/watchlist/union/` | Combinada cruda: pelis en alguna watchlist |
+| `/all/watchlist/intersection/` | Combinada cruda: pelis en TODAS las watchlists |
+| `/all/watchlist/union-unwatched/` | Combinada cruda: union excluyendo vistas por alguien |
+| `/all/<sublist-slug>/` | **Sublista combinada** con filtros / cap / rotación sobre una combinada |
 
-**Reservas**: `all`, `api`, `admin`, `static`, `health` no son usernames válidos. Dentro de un user, el slug `watchlist` está reservado para el endpoint de la watchlist personal.
+**Reservas**:
+- Como `<user>`: `all`, `api`, `admin`, `static`, `health`.
+- Como `<slug>` bajo `/<user>/`: `watchlist`.
+- Como `<slug>` bajo `/all/`: `watchlist` (namespace de las combinadas crudas).
+- El espacio de slugs bajo un user es compartido entre listas parent y sublistas — slug único por user.
+
+Detalles del modelo y de cuándo se actualiza cada vista: [`data-model.md`](data-model.md) y [`sync-strategy.md`](sync-strategy.md).
 
 ## Listas combinadas (`/all/`)
 

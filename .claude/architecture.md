@@ -9,16 +9,19 @@ Letterboxd (HTML + RSS, multi-user)
    Sync workers ─ scraper de listas (incremental + full)
                 ├ RSS watcher
                 ├ films-backstop
-                └ discovery
+                ├ discovery
+                └ rotation worker (sin red)
         │
         ▼
    DB interna (multi-user, autoritativa)  ◀────────  UI de control (HTMX)
         │
         ▼
    API HTTP
-   ├ /<user>/<slug>/        (lista custom)
-   ├ /<user>/watchlist/     (watchlist personal)
-   └ /all/watchlist/<combo> (combinadas: union / intersection / union-unwatched)
+   ├ /<user>/<slug>/        (lista parent cruda)
+   ├ /<user>/<sublist>/     (sublista del user con cap/filtros/rotación)
+   ├ /<user>/watchlist/     (watchlist personal cruda)
+   ├ /all/watchlist/<combo> (combinada cruda)
+   └ /all/<sublist>/        (sublista sobre combinada)
         │
         ▼
    Radarr (Custom Lists, una por endpoint)
@@ -26,8 +29,8 @@ Letterboxd (HTML + RSS, multi-user)
 
 - Los sync workers traducen Letterboxd a DB. Cada uno con su frecuencia configurable (ver [`sync-strategy.md`](sync-strategy.md)).
 - La DB es **autoritativa**: lo que servimos a Radarr es siempre un SELECT, nunca on-the-fly.
-- La UI deja al usuario añadir perfiles de Letterboxd, activar listas descubiertas y ajustar políticas (sort, max items, rotación).
-- Las listas combinadas (`/all/`) son queries virtuales sobre las watchlists de todos los users registrados.
+- La UI deja al usuario añadir perfiles de Letterboxd, activar listas descubiertas y crear sublistas con sus políticas (cap, filtros, rotación). Detalles: [`ui-features.md`](ui-features.md).
+- Las listas combinadas crudas (`/all/watchlist/...`) son queries virtuales sobre las watchlists de todos los users registrados. Las sublistas pueden tener como parent una combinada.
 
 ## Componentes objetivo
 
@@ -37,8 +40,15 @@ Letterboxd (HTML + RSS, multi-user)
 - **Films-backstop**: scrape periódico de `/{user}/films/` página 1 (≈72 últimos vistos) para rellenar gaps del RSS. También se dispara ad-hoc durante el anti-flap.
 - **Discovery**: scrape periódico de `/{user}/lists/` para detectar listas nuevas o eliminadas. Las nuevas entran como `enabled=false`; el user las activa desde la UI.
 
-### Combined views
+### Combined views (crudas)
 - `/all/watchlist/union/`, `/all/watchlist/intersection/`, `/all/watchlist/union-unwatched/`. Resueltas con queries SQL sobre `list_items` + `watched_films`. Universo = todos los users registrados, siempre.
+
+### Sublistas
+- Vistas servidas con cap (`max_items`), filtros estáticos (rating, año, fecha de adición) y rotación temporal opcional. Cada sublista tiene su propia URL bajo `/<user>/<slug>/` o `/all/<slug>/`.
+- Modelo: [`data-model.md`](data-model.md). Operaciones desde UI: [`ui-features.md`](ui-features.md).
+
+### Rotation worker
+- Independiente del scraping, no toca la red. Recorre sublistas con rotación activada cada `ROTATION_TICK_INTERVAL` (default 1 h) y aplica FIFO temporal: saca las que llevan más tiempo servidas, mete random del pool elegible. Detalles: [`sync-strategy.md`](sync-strategy.md).
 
 ### DB interna
 - Esquema canónico en [`data-model.md`](data-model.md). Multi-user nativo, identidad por `tmdb_id`.
@@ -50,7 +60,7 @@ Letterboxd (HTML + RSS, multi-user)
 
 ### UI de control
 - HTML server-rendered + HTMX. Sin SPA, sin build step si se puede evitar.
-- Páginas: dashboard multi-user (listas + estado por user), edición de lista (sort, max, rotación), discovery (activar listas nuevas detectadas), ajustes globales, log de actividad.
+- Catálogo completo de páginas y acciones: [`ui-features.md`](ui-features.md).
 
 ## Principios de diseño
 
@@ -82,6 +92,7 @@ Estas decisiones se documentan aquí cuando se tomen — no antes.
   - `LISTS_INCREMENTAL_INTERVAL`, `LISTS_FULL_INTERVAL` — scrapes de listas custom.
   - `FILMS_BACKSTOP_INTERVAL` — `/films/` página 1.
   - `DISCOVERY_INTERVAL` — `/lists/` para descubrir listas nuevas.
+  - `ROTATION_TICK_INTERVAL` — cadencia del rotation worker (sublistas).
   - `FLAP_CONFIRM_SCRAPES` — umbral de confirmación antes de eliminar (default 3).
 - Los users de Letterboxd se añaden vía UI, **no** por variable de entorno (multi-user). El primer arranque presenta un wizard.
 
