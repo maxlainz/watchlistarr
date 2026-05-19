@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Claude local settings (personal, no parte de los docs del proyecto)
+.claude/settings.local.json
