@@ -13,9 +13,33 @@ watchlistarr **no** habla con la API de Radarr. La integración es al revés: Ra
    - **Monitor**: `Movie Only` / `None`.
    - **Search on Add**: a gusto del usuario.
    - **Minimum Availability**, **Quality Profile**, **Root Folder**: a gusto del usuario.
-   - **List URL**: `http://<host-watchlistarr>:<port>/list/<list_id>`.
+   - **List URL**: `http://<host-watchlistarr>:<port>/<user>/<slug>/` para listas personales, `/<user>/watchlist/` para una watchlist, o `/all/watchlist/<combo>/` para combinadas. Ver sección "URL routing en watchlistarr".
    - **Sync Interval**: lo decide Radarr (default histórico 6 h; mínimo aceptable ~1 h). watchlistarr **no controla** la frecuencia.
 3. **Test** → debería decir OK. **Save**.
+
+## URL routing en watchlistarr
+
+Multi-user en una sola instancia. Patrones expuestos:
+
+| URL | Significado |
+|---|---|
+| `/<user>/<slug>/` | Lista custom del user, identificada por su slug Letterboxd |
+| `/<user>/watchlist/` | Watchlist personal del user |
+| `/all/watchlist/union/` | Pelis en alguna watchlist (todos los users registrados) |
+| `/all/watchlist/intersection/` | Pelis en TODAS las watchlists |
+| `/all/watchlist/union-unwatched/` | Union, excluyendo pelis ya vistas por al menos un user |
+
+**Reservas**: `all`, `api`, `admin`, `static`, `health` no son usernames válidos. Dentro de un user, el slug `watchlist` está reservado para el endpoint de la watchlist personal.
+
+## Listas combinadas (`/all/`)
+
+Sirven el mismo formato JSON que las individuales. Cada item es una película con `tmdb_id` único — la unión deduplica por TMDB ID, no por slug. El sort y los filtros aplicados son los de la combinación, no los de las watchlists subyacentes.
+
+- `union`: aparece si está en al menos una watchlist.
+- `intersection`: aparece si está en TODAS las watchlists.
+- `union-unwatched`: union, excluyendo pelis ya vistas por al menos un user (caso "noche de cine en grupo" — si alguien ya la vio, fuera).
+
+Detalles del modelo: [`data-model.md`](data-model.md). Detalles del sync (cuándo se recalcula, anti-flap): [`sync-strategy.md`](sync-strategy.md).
 
 ## Formato JSON que watchlistarr debe devolver
 

@@ -3,54 +3,62 @@
 ## Flujo general
 
 ```
-Letterboxd (HTML público + RSS de usuario)
+Letterboxd (HTML + RSS, multi-user)
         │
         ▼
-   Scraper / RSS watcher
+   Sync workers ─ scraper de listas (incremental + full)
+                ├ RSS watcher
+                ├ films-backstop
+                └ discovery
         │
         ▼
-   DB interna  ◀────────  UI de control (web, HTMX)
+   DB interna (multi-user, autoritativa)  ◀────────  UI de control (HTMX)
         │
         ▼
-   API HTTP (formato custom list)
+   API HTTP
+   ├ /<user>/<slug>/        (lista custom)
+   ├ /<user>/watchlist/     (watchlist personal)
+   └ /all/watchlist/<combo> (combinadas: union / intersection / union-unwatched)
         │
         ▼
-      Radarr
+   Radarr (Custom Lists, una por endpoint)
 ```
 
-- El scraper traduce listas de Letterboxd a registros en la DB interna.
-- El RSS watcher lee la actividad del usuario; cuando aparece una película marcada como vista, se purga de las listas configuradas para hacerlo (rotación).
-- La UI deja al usuario configurar fuentes (listas), políticas (cuántos servir, sort), y forzar refrescos.
-- La API expone los resultados en el formato que Radarr espera para custom lists.
+- Los sync workers traducen Letterboxd a DB. Cada uno con su frecuencia configurable (ver [`sync-strategy.md`](sync-strategy.md)).
+- La DB es **autoritativa**: lo que servimos a Radarr es siempre un SELECT, nunca on-the-fly.
+- La UI deja al usuario añadir perfiles de Letterboxd, activar listas descubiertas y ajustar políticas (sort, max items, rotación).
+- Las listas combinadas (`/all/`) son queries virtuales sobre las watchlists de todos los users registrados.
 
 ## Componentes objetivo
 
-### Scraper de listas
-- Recibe una URL de lista pública de Letterboxd (`/{user}/list/{slug}/`).
-- Recorre paginación, extrae cada film y su TMDB ID (resolviendo desde la ficha individual si no aparece en la lista).
-- Guarda en DB: `list_id`, `position`, `tmdb_id`, `title`, `year`, `scraped_at`.
+### Sync workers (per-user, configurables, transaccionales)
+- **Scraper de listas**: dos modos (incremental + full). Incremental detecta adiciones en O(2) fetches usando `/by/added-earliest/`. Full recorre toda la lista para detectar eliminaciones y reordenamientos. Detalles: [`letterboxd-lists.md`](letterboxd-lists.md), [`sync-strategy.md`](sync-strategy.md).
+- **RSS watcher**: polling al RSS del usuario, captura eventos de visionado en caliente. Dedup por `<guid>`. Detalles: [`letterboxd-rss.md`](letterboxd-rss.md).
+- **Films-backstop**: scrape periódico de `/{user}/films/` página 1 (≈72 últimos vistos) para rellenar gaps del RSS. También se dispara ad-hoc durante el anti-flap.
+- **Discovery**: scrape periódico de `/{user}/lists/` para detectar listas nuevas o eliminadas. Las nuevas entran como `enabled=false`; el user las activa desde la UI.
 
-### RSS watcher
-- Polling periódico al RSS público del usuario (`/{user}/rss/`).
-- Detecta entradas de tipo "watched" (atributo `letterboxd:watchedDate` en el item).
-- Marca la película como vista en la DB y aplica la política configurada (eliminar de listas que así lo indiquen vs. ignorar).
+### Combined views
+- `/all/watchlist/union/`, `/all/watchlist/intersection/`, `/all/watchlist/union-unwatched/`. Resueltas con queries SQL sobre `list_items` + `watched_films`. Universo = todos los users registrados, siempre.
 
 ### DB interna
-- **TBD**: probable SQLite por simplicidad de empaquetado en Docker (un solo binario, un volumen de datos).
-- Esquema tentativo (rellenar cuando se elija stack y ORM/driver):
-  - `lists` — fuentes Letterboxd configuradas + políticas (sort, max items, rotación).
-  - `items` — películas ingeridas por lista, con posición y estado (`pending`, `served`, `watched`).
-  - `settings` — configuración global (rate limit, user-agent, intervalos).
+- Esquema canónico en [`data-model.md`](data-model.md). Multi-user nativo, identidad por `tmdb_id`.
+- Motor TBD (SQLite probable).
 
 ### API a Radarr
-- Endpoint HTTP `GET /list/{list_id}` que devuelve JSON en el formato custom list de Radarr (lista de objetos con `tmdbId` mínimo; investigar exactamente qué campos exige Radarr v5).
-- Filtros aplicados en el endpoint: sort order configurado, límite de tamaño, exclusión de vistos según política.
-- Sin autenticación en MVP (asumimos que watchlistarr y Radarr corren en la misma red Docker). Añadir token si se expone fuera.
+- Endpoints HTTP que devuelven el array JSON de Custom List leyendo desde la DB. Detalles del formato: [`radarr-custom-list.md`](radarr-custom-list.md).
+- Sin autenticación en MVP (asumimos red Docker interna).
 
 ### UI de control
-- HTML server-rendered + HTMX para interacciones (añadir lista, editar política, refrescar manualmente, ver últimos errores de scraping).
-- Sin SPA. Sin build step de frontend si se puede evitar.
-- Páginas: dashboard (listas + estado), edición de lista, ajustes globales, log de actividad.
+- HTML server-rendered + HTMX. Sin SPA, sin build step si se puede evitar.
+- Páginas: dashboard multi-user (listas + estado por user), edición de lista (sort, max, rotación), discovery (activar listas nuevas detectadas), ajustes globales, log de actividad.
+
+## Principios de diseño
+
+1. **DB autoritativa**. Lo servido a Radarr es siempre un SELECT, nunca on-the-fly. Evita parpadeos que llevarían a Radarr a borrar pelis que tardaron semanas en bajar.
+2. **RSS-driven en caliente**. Cambios de vistos llegan por RSS con baja latencia. Los scrapes son para arranque inicial y verificación.
+3. **Anti-flap por verificación cruzada**. Antes de retirar un item de la lista servida: cruzar con `watched_films`, con `/films/` backstop y con `(title, year)` para detectar rename. Solo eliminar tras `FLAP_CONFIRM_SCRAPES` (default 3) confirmaciones consecutivas.
+4. **Multi-user nativo**. Una instancia soporta N perfiles + combinadas en `/all/`.
+5. **Todo configurable**. Frecuencias de RSS, watchlist (incremental + full), listas (incremental + full), films-backstop y discovery son variables de entorno.
 
 ## Decisiones pendientes (TBD)
 
@@ -66,12 +74,16 @@ Estas decisiones se documentan aquí cuando se tomen — no antes.
 
 - Una sola imagen que arranca scraper + scheduler + API + UI en el mismo proceso (o supervisord si la división por procesos lo justifica).
 - Volumen montado para persistir la DB (`/data` o equivalente).
-- Variables de entorno principales: TBD según stack, pero como mínimo:
-  - `LETTERBOXD_USER` — usuario cuyo RSS se monitoriza.
-  - `SCRAPE_INTERVAL` — frecuencia del ciclo de scraping.
-  - `RSS_INTERVAL` — frecuencia del polling de RSS.
+- Variables de entorno principales (defaults sugeridos en [`sync-strategy.md`](sync-strategy.md)):
   - `HTTP_PORT` — puerto de UI/API.
   - `LOG_LEVEL` — verbosity.
+  - `RSS_INTERVAL` — polling del RSS de cada user.
+  - `WATCHLIST_INCREMENTAL_INTERVAL`, `WATCHLIST_FULL_INTERVAL` — scrapes de watchlist.
+  - `LISTS_INCREMENTAL_INTERVAL`, `LISTS_FULL_INTERVAL` — scrapes de listas custom.
+  - `FILMS_BACKSTOP_INTERVAL` — `/films/` página 1.
+  - `DISCOVERY_INTERVAL` — `/lists/` para descubrir listas nuevas.
+  - `FLAP_CONFIRM_SCRAPES` — umbral de confirmación antes de eliminar (default 3).
+- Los users de Letterboxd se añaden vía UI, **no** por variable de entorno (multi-user). El primer arranque presenta un wizard.
 
 ## Integración con Radarr
 

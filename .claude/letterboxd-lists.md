@@ -178,6 +178,57 @@ TMDB ID en el `<body>`:
 - Si `data-tmdb-id` vacío o ausente: logear y saltar (peli sin entry en TMDB, raro pero posible).
 - **Cloudflare cachea las fichas** (`cache-control: s-maxage=300`, `cf-cache-status: HIT`). Scraping es barato; **persistir el TMDB ID en DB** y no re-resolver salvo refresco explícito.
 
+## Sort URLs (`/by/*`) — qué funciona y para qué sirve
+
+Letterboxd expone múltiples sorts en `/by/<key>/`. Cloudflare los filtra **selectivamente**: bloquea los "freshness-revealing" y deja pasar los estables. Verificado con `sleep 3s` entre requests para descartar rate limit transitorio.
+
+| URL | watchlist | lista custom |
+|---|---|---|
+| `(default, sin /by/)` | 200 — newest-added first | 200 — list-order |
+| `/by/added/` | n/a | **403** |
+| `/by/added-earliest/` | n/a | 200 |
+| `/by/date-earliest/` | **403** | n/a |
+| `/by/reverse/` | n/a | 200 |
+| `/by/name/` | 403 | 403 |
+| `/by/popular/` | 403 | 403 |
+| `/by/release/` | 403 | 200 |
+| `/by/release-earliest/` | 403 | 200 |
+| `/by/shuffle/` | 403 | 200 |
+| `/by/longest/` | 403 | 200 |
+
+**Uso operacional**:
+
+- **Watchlist**: todos los `/by/*` bloqueados. Pero el **default ya es newest-added first** — la **página 1 del default contiene las últimas 28 adiciones**. Suficiente para sync incremental sin scrape completo.
+- **Lista custom**: el sort más útil para nosotros (`/by/added/`, newest first) está **bloqueado**. Pero `/by/added-earliest/` (oldest first) sí funciona — **la última página de ese sort contiene las pelis más recientemente añadidas**. Sync incremental en O(2) fetches:
+  1. Fetch página 1 default → parsear total de páginas `N`.
+  2. Fetch `/by/added-earliest/page/N/` → últimas 28 adiciones.
+  3. Diff con DB → adiciones detectadas.
+- Para detectar **eliminaciones**, **reordenamientos** o **cambios en mitad de la lista** se necesita scrape completo (espaciado, ver [`sync-strategy.md`](sync-strategy.md)).
+
+## `/{user}/films/` como backstop de vistos
+
+watchlistarr usa `/films/` página 1 como red de seguridad por si el RSS pierde un evento de visionado (la ventana del RSS es limitada).
+
+- URL: `https://letterboxd.com/{user}/films/`.
+- **Página 1 responde 200**. **72 items por página** (más densidad que las listas).
+- **`/films/page/N/` para N≥2 devuelve 403** con `cf-mitigated: challenge` — bloqueado sistemáticamente por Cloudflare. No es rate limit; ni siquiera espaciando funciona.
+- **`/films/diary/` y `/films/by/date/` también 403**.
+- En consecuencia: solo la página 1 (≈72 últimos vistos) es accesible sin sesión autenticada.
+
+Schema del item: el mismo `<li class="griditem">` + `<div class="react-component" data-item-slug>` que las listas, pero acompañado de un bloque adicional con rating/like/review opcionales:
+
+```html
+<p class="poster-viewingdata" data-item-uid="film:951277">
+  <span class="rating -micro -darker rated-9">★★★★½</span>
+  <span class="like liked-micro has-icon icon-liked icon-16">…</span>
+  <a href="/maxlainz/film/one-battle-after-another/" class="review-micro …">…</a>
+</p>
+```
+
+watchlistarr solo necesita el `data-item-slug` para confirmar "esto está visto"; rating/like/review no se persisten desde aquí (vienen del RSS para los recientes).
+
+Uso operacional: el `films-backstop` corre con frecuencia `FILMS_BACKSTOP_INTERVAL` (default 24 h) y también ad-hoc cuando un scrape de lista detecta una candidata a eliminación sin confirmación de visto (ver [`sync-strategy.md`](sync-strategy.md)).
+
 ## Pipeline del scraper end-to-end
 
 1. **Validar username** (al guardar la config en la UI):
