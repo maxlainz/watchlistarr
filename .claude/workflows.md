@@ -2,19 +2,31 @@
 
 ## Desarrollo local
 
-> **TBD** — comandos exactos dependen del stack elegido. Cuando se decida, rellenar:
+Requisitos: Python 3.12+ y [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Setup (placeholder)
+# Setup inicial
 cp .env.example .env
-# Editar .env con LETTERBOXD_USER, intervalos, puerto
+uv sync                                  # crea .venv y resuelve deps
+uv run alembic upgrade head              # aplica migrations
 
-# Arrancar (placeholder)
-docker compose up --build
-# o, sin Docker, comandos nativos del stack
+# Arrancar el servidor con reload
+uv run uvicorn watchlistarr.main:app --reload --port "$HTTP_PORT"
+
+# Lint / format / type check
+uv run ruff check src tests
+uv run ruff format src tests
+uv run mypy src
+
+# Tests
+uv run pytest
+
+# Migrations nuevas (tras tocar src/watchlistarr/models/)
+uv run alembic revision --autogenerate -m "describe change"
+uv run alembic upgrade head
 ```
 
-Servicio disponible en `http://localhost:<HTTP_PORT>` (puerto definido en `.env`).
+Servicio disponible en `http://localhost:<HTTP_PORT>`. Stack completo: [`tech-stack.md`](tech-stack.md).
 
 ## Añadir una lista nueva
 
@@ -64,14 +76,21 @@ git push origin main
 
 ## Variables de entorno
 
-| Variable | Uso | Secreto |
+| Variable | Default | Uso |
 |---|---|---|
-| `LETTERBOXD_USER` | Usuario cuyo RSS se monitoriza para rotación de vistos | No |
-| `SCRAPE_INTERVAL` | Frecuencia del ciclo de scraping (ej. `30m`) | No |
-| `RSS_INTERVAL` | Frecuencia del polling del RSS de usuario (ej. `15m`) | No |
-| `HTTP_PORT` | Puerto donde se sirve UI + API | No |
-| `LOG_LEVEL` | Nivel de log (`debug` / `info` / `warn` / `error`) | No |
-| `USER_AGENT` | UA usado en requests a Letterboxd (default `watchlistarr/<ver>`) | No |
-| `DATABASE_PATH` | Path del fichero/host de la DB (TBD según motor) | No |
+| `HTTP_PORT` | `8080` | Puerto de UI + API |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warning` / `error` |
+| `LOG_FORMAT` | `plain` | `plain` (dev) / `json` (prod) |
+| `DATABASE_URL` | `sqlite+aiosqlite:///data/watchlistarr.db` | Path del archivo SQLite |
+| `USER_AGENT` | `watchlistarr/<version> (+https://github.com/maxlainz/watchlistarr)` | UA enviado a Letterboxd |
+| `RSS_INTERVAL` | `15m` | Default inicial; modificable desde GUI |
+| `WATCHLIST_INCREMENTAL_INTERVAL` | `1h` | Default inicial; modificable desde GUI |
+| `WATCHLIST_FULL_INTERVAL` | `24h` | Default inicial; modificable desde GUI |
+| `LISTS_INCREMENTAL_INTERVAL` | `6h` | Default inicial; modificable desde GUI |
+| `LISTS_FULL_INTERVAL` | `7d` | Default inicial; modificable desde GUI |
+| `FILMS_BACKSTOP_INTERVAL` | `24h` | Default inicial; modificable desde GUI |
+| `DISCOVERY_INTERVAL` | `7d` | Default inicial; modificable desde GUI |
+| `ROTATION_TICK_INTERVAL` | `1h` | Default inicial; modificable desde GUI |
+| `FLAP_CONFIRM_SCRAPES` | `3` | Default inicial; modificable desde GUI |
 
-> Rellenar y reordenar cuando se concrete el stack. Añadir filas para tokens si en el futuro se expone la API fuera de la red Docker.
+Las "modificable desde GUI" sirven como **default inicial** para popular la tabla `settings` en el primer arranque. Los cambios posteriores en `.env` se ignoran (la DB es autoritativa). Detalles: [`sync-strategy.md`](sync-strategy.md) y [`tech-stack.md`](tech-stack.md).

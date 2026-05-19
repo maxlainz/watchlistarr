@@ -120,7 +120,12 @@ Luego el user entra al régimen periódico configurado.
 
 ## Configuración
 
-Todas las `*_INTERVAL` y `FLAP_CONFIRM_SCRAPES` son **variables de entorno** con defaults razonables. Se documentan en `workflows.md` cuando se elija stack. Cambios en runtime requieren restart (a menos que decidamos hot-reload, decisión TBD).
+Todas las `*_INTERVAL` y `FLAP_CONFIRM_SCRAPES` se persisten en la tabla `settings` (ver [`data-model.md`](data-model.md)). En el primer arranque, los valores se inicializan desde las env vars del mismo nombre (defaults documentados en [`workflows.md`](workflows.md)).
+
+Cambios desde la UI:
+1. Update en `settings`.
+2. El scheduler re-llama a `reschedule_job(job_id, trigger=…)` con el nuevo intervalo.
+3. Sin restart del proceso.
 
 ## Cross-references
 

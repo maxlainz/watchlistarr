@@ -15,18 +15,23 @@
 
 ## Lenguaje y tipado
 
-> **TBD** — pendiente de elegir stack backend (Python / Node-TS / Go / otro).
-> Cuando se decida, rellenar aquí: versión, gestor de paquetes, linter, formatter, type checker.
-
-Reglas vigentes sin importar el stack:
-- Si el lenguaje soporta tipado estático, usarlo en todo el código de aplicación. No `any` / `interface{}` salvo en fronteras serializadas.
-- Configuración (puertos, paths, intervalos, credenciales) **siempre** vía variables de entorno o archivo de config — nunca hardcoded.
+- **Python 3.12+** (floor). Pin en `pyproject.toml`.
+- **Type hints en todo el código de aplicación**. `from __future__ import annotations` no necesario en 3.12+.
+- **`mypy --strict`** en CI. Sin `Any` salvo en fronteras (HTML scraping, JSON de Radarr) — y entonces convertir a tipos propios cuanto antes.
+- **Pydantic v2** para schemas de I/O (API request/response, settings, structs de scraping). No para modelos de DB (esos van con SQLAlchemy `Mapped[T]`).
+- **`ruff`** como linter + formatter (sustituye black/isort/flake8). Config en `pyproject.toml`.
+- Configuración (puertos, paths, intervalos, credenciales) siempre vía env vars (`Settings` de Pydantic) o tabla `settings`. Nunca hardcoded.
+- Detalles de versiones, layout y comandos: [`tech-stack.md`](tech-stack.md).
 
 ## Estilo de código
 
-- Módulos pequeños y nombres descriptivos. Una función hace una cosa.
-- Sin frameworks de UI complejos. Frontend = HTML server-rendered + HTMX para interactividad puntual.
-- Sin CSS-in-JS ni utility frameworks pesados; un único stylesheet global salvo motivo concreto.
+- Módulos por dominio (`services/letterboxd/`, `services/scrape/`, etc.), no por capa horizontal.
+- **Async-first**. Si una función puede ser async (toca DB o red), lo es. No mezclar sync + async sin razón.
+- Funciones pequeñas; una función hace una cosa.
+- `print()` prohibido en código de aplicación; usar `structlog`.
+- No `from x import *`. Imports explícitos.
+- Sin frameworks de UI complejos (decisión cerrada): HTMX + Pico CSS + Jinja2.
+- Tests viven en `tests/`, espejando la estructura de `src/watchlistarr/`.
 
 ## Comentarios
 

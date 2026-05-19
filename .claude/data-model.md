@@ -23,6 +23,9 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
 | `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos) |
+| `settings` | `key` (PK, string), `value` (string), `updated_at` | Config dinámica (intervalos, umbrales). Defaults provienen de env en el primer arranque; cambios posteriores los gestiona la UI |
+
+**Nota sobre tipado**: las tablas se mapean a SQLAlchemy 2.0 `Mapped[T]` declarative. Migrations en `alembic/versions/` generadas con `--autogenerate`. Detalles en [`tech-stack.md`](tech-stack.md).
 
 ## Multi-user
 

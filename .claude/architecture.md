@@ -70,31 +70,31 @@ Letterboxd (HTML + RSS, multi-user)
 4. **Multi-user nativo**. Una instancia soporta N perfiles + combinadas en `/all/`.
 5. **Todo configurable**. Frecuencias de RSS, watchlist (incremental + full), listas (incremental + full), films-backstop y discovery son variables de entorno.
 
-## Decisiones pendientes (TBD)
+## Decisiones técnicas
 
-- **Lenguaje backend**: Python / Node-TS / Go. Decisivo para todo lo demás.
-- **Motor de templates**: dependiente del backend (Jinja, Pug/EJS, html/template, Nunjucks…).
-- **DB**: SQLite (recomendado) vs Postgres (overkill para un single-user self-hosted).
-- **Scheduler**: cron interno del proceso vs job runner (APScheduler / node-cron / robfig/cron).
-- **Cliente HTTP / parser HTML**: depende del backend (requests+bs4 / undici+cheerio / colly).
+Stack completo en [`tech-stack.md`](tech-stack.md). Resumen:
 
-Estas decisiones se documentan aquí cuando se tomen — no antes.
+- **Backend**: Python 3.12+ con FastAPI.
+- **DB**: SQLite + SQLAlchemy 2.0 async + Alembic.
+- **Frontend**: Jinja2 + HTMX + Pico CSS, server-rendered.
+- **Scheduling**: APScheduler dentro del mismo proceso FastAPI.
+- **Scraping**: httpx + BeautifulSoup4/lxml + feedparser.
+- **Packaging**: uv + Docker `python:3.12-slim`.
+
+Los cambios de stack se documentan aquí cuando se tomen — `tech-stack.md` es la fuente canónica.
 
 ## Docker
 
-- Una sola imagen que arranca scraper + scheduler + API + UI en el mismo proceso (o supervisord si la división por procesos lo justifica).
-- Volumen montado para persistir la DB (`/data` o equivalente).
-- Variables de entorno principales (defaults sugeridos en [`sync-strategy.md`](sync-strategy.md)):
-  - `HTTP_PORT` — puerto de UI/API.
-  - `LOG_LEVEL` — verbosity.
-  - `RSS_INTERVAL` — polling del RSS de cada user.
-  - `WATCHLIST_INCREMENTAL_INTERVAL`, `WATCHLIST_FULL_INTERVAL` — scrapes de watchlist.
-  - `LISTS_INCREMENTAL_INTERVAL`, `LISTS_FULL_INTERVAL` — scrapes de listas custom.
-  - `FILMS_BACKSTOP_INTERVAL` — `/films/` página 1.
-  - `DISCOVERY_INTERVAL` — `/lists/` para descubrir listas nuevas.
-  - `ROTATION_TICK_INTERVAL` — cadencia del rotation worker (sublistas).
-  - `FLAP_CONFIRM_SCRAPES` — umbral de confirmación antes de eliminar (default 3).
-- Los users de Letterboxd se añaden vía UI, **no** por variable de entorno (multi-user). El primer arranque presenta un wizard.
+- Una sola imagen, multi-stage build:
+  - **Builder**: `python:3.12-slim`, instala `uv`, ejecuta `uv sync --frozen --no-dev`.
+  - **Runtime**: `python:3.12-slim`, copia `.venv` + `src/` + `alembic/`.
+- Tamaño esperado ~150–180 MB.
+- Un solo proceso (`uvicorn watchlistarr.main:app`) con APScheduler embebido. Sin supervisord.
+- Volumen `/data` para el archivo SQLite (`DATABASE_URL=sqlite+aiosqlite:///data/watchlistarr.db`).
+- Healthcheck: `GET /healthz` → 200 si la DB es accesible.
+- Variables de entorno: ver [`workflows.md`](workflows.md).
+- Los users de Letterboxd se añaden vía UI, **no** por env (multi-user). Primer arranque presenta el wizard.
+- Detalles del Dockerfile y del wiring de procesos: [`tech-stack.md`](tech-stack.md).
 
 ## Integración con Radarr
 
