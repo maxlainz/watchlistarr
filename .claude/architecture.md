@@ -83,5 +83,5 @@ Spec completa, formato JSON, pitfalls y referencias: [`radarr-custom-list.md`](r
 
 - **Listas públicas**: `https://letterboxd.com/{user}/list/{slug}/`, paginadas (`/page/2/`...). Cada item es un `<li class="poster-container">` con `data-film-slug`.
 - **Ficha de film**: `https://letterboxd.com/film/{film-slug}/` — contiene `<body data-tmdb-id="...">` y `data-tmdb-type="movie|tv"`.
-- **RSS de usuario**: `https://letterboxd.com/{user}/rss/`. Items de tipo watched llevan `<letterboxd:watchedDate>` y `<letterboxd:filmTitle>`.
+- **RSS de usuario**: `https://letterboxd.com/{user}/rss/`. Spec completa del feed (namespaces, tipos de item, schemas, edge cases): [`letterboxd-rss.md`](letterboxd-rss.md).
 - **No usar autenticación**: el proyecto se limita a contenido público.
