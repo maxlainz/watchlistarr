@@ -81,7 +81,6 @@ Spec completa, formato JSON, pitfalls y referencias: [`radarr-custom-list.md`](r
 
 ## Letterboxd: estructura conocida
 
-- **Listas públicas**: `https://letterboxd.com/{user}/list/{slug}/`, paginadas (`/page/2/`...). Cada item es un `<li class="poster-container">` con `data-film-slug`.
-- **Ficha de film**: `https://letterboxd.com/film/{film-slug}/` — contiene `<body data-tmdb-id="...">` y `data-tmdb-type="movie|tv"`.
+- **Discovery + listas + fichas (HTML)**: a partir de un username se descubren watchlist + todas las listas públicas creadas; spec completa de selectores, paginación, resolución de TMDB ID y anti-bot: [`letterboxd-lists.md`](letterboxd-lists.md).
 - **RSS de usuario**: `https://letterboxd.com/{user}/rss/`. Spec completa del feed (namespaces, tipos de item, schemas, edge cases): [`letterboxd-rss.md`](letterboxd-rss.md).
 - **No usar autenticación**: el proyecto se limita a contenido público.

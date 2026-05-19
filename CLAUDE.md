@@ -22,4 +22,5 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 | [`.claude/architecture.md`](.claude/architecture.md) | Stack, componentes (scraper, DB, API a Radarr, RSS watcher, UI), decisiones pendientes |
 | [`.claude/radarr-custom-list.md`](.claude/radarr-custom-list.md) | Antes de tocar la API que sirve a Radarr — formato JSON, pitfalls, headers |
 | [`.claude/letterboxd-rss.md`](.claude/letterboxd-rss.md) | Antes de tocar el RSS watcher — formato del feed, namespaces, tipos de item, edge cases |
+| [`.claude/letterboxd-lists.md`](.claude/letterboxd-lists.md) | Antes de tocar el scraper de listas — discovery por username, selectores HTML, paginación, resolución de TMDB ID, anti-bot |
 | [`.claude/workflows.md`](.claude/workflows.md) | Comandos de desarrollo, Docker, deploy, merge a `main`, variables de entorno |
