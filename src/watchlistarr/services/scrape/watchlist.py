@@ -22,14 +22,22 @@ def _path(username: str, page: int) -> str:
     return f"/{username}/watchlist/" if page == 1 else f"/{username}/watchlist/page/{page}/"
 
 
+_COMMIT_EVERY = 10
+
+
 async def _resolve_slugs(
     session: AsyncSession, client: LetterboxdClient, slugs: list[str]
 ) -> dict[str, Film]:
+    """Resuelve films libera el write-lock cada `_COMMIT_EVERY` para no bloquear a otros writers."""
     resolved: dict[str, Film] = {}
-    for slug in slugs:
+    for i, slug in enumerate(slugs, 1):
         film = await resolve_film(session, client, slug)
         if film is not None:
             resolved[slug] = film
+        if i % _COMMIT_EVERY == 0:
+            await session.commit()
+    if slugs and len(slugs) % _COMMIT_EVERY != 0:
+        await session.commit()
     return resolved
 
 
@@ -42,6 +50,7 @@ async def _upsert_items(
     existing_by_tmdb = {it.tmdb_id: it for it in existing_items}
     now = utcnow()
     seen: set[int] = set()
+    inserted_or_updated = 0
     for position, slug in enumerate(ordered_slugs):
         film = films_by_slug.get(slug)
         if film is None:
@@ -62,7 +71,10 @@ async def _upsert_items(
             item.position = position
             item.last_seen_at = now
             item.pending_removal_count = 0
-    await session.flush()
+        inserted_or_updated += 1
+        if inserted_or_updated % _COMMIT_EVERY == 0:
+            await session.commit()
+    await session.commit()
     return seen
 
 

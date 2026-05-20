@@ -8,9 +8,10 @@ from pathlib import Path
 import structlog
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from watchlistarr import __version__
 from watchlistarr.config import get_settings
@@ -84,6 +85,18 @@ def create_app() -> FastAPI:
             logger.warning("healthz.db_unreachable", error=str(exc))
             return JSONResponse({"status": "error", "db": "unreachable"}, status_code=503)
         return JSONResponse({"status": "ok", "version": __version__})
+
+    @app.exception_handler(Exception)
+    async def _log_unhandled(request: Request, exc: Exception) -> Response:
+        if isinstance(exc, StarletteHTTPException):
+            raise exc
+        logger.exception(
+            "request.unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+        )
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
     app.include_router(admin_router)
     app.include_router(ui_dashboard_router)
