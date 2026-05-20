@@ -1,4 +1,6 @@
 import asyncio
+import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -7,7 +9,7 @@ import structlog
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -98,9 +100,24 @@ def create_app() -> FastAPI:
     app.include_router(api_v1_router)
     app.include_router(radarr_router)
 
+    # Cache-buster: append ?v=<startup-id> a cada referencia estática del shell
+    # para forzar al navegador a re-descargar styles.css y los .jsx tras cada
+    # restart del contenedor. Sin esto, Babel-standalone y el navegador cachean
+    # los .jsx y los cambios de UI no se ven hasta hard-refresh.
+    _build_id = f"{__version__}-{int(time.time())}"
+    _shell_html = _INDEX_HTML.read_text(encoding="utf-8")
+    _shell_html = re.sub(
+        r'(src|href)="(/static/[^"?]+)"',
+        rf'\1="\2?v={_build_id}"',
+        _shell_html,
+    )
+
     @app.get("/", include_in_schema=False)
-    async def spa_index() -> FileResponse:
-        return FileResponse(_INDEX_HTML)
+    async def spa_index() -> HTMLResponse:
+        return HTMLResponse(
+            _shell_html,
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
     return app
 
