@@ -13,7 +13,7 @@ Letterboxd (HTML + RSS, multi-user)
                 └ rotation worker (sin red)
         │
         ▼
-   DB interna (multi-user, autoritativa)  ◀────────  UI de control (HTMX)
+   DB interna (multi-user, autoritativa)  ◀────────  UI de control (React SPA + JSON API)
         │
         ▼
    API HTTP
@@ -56,7 +56,8 @@ Letterboxd (HTML + RSS, multi-user)
 - Sin autenticación en MVP (asumimos red Docker interna).
 
 ### UI de control
-- HTML server-rendered + HTMX. Sin SPA, sin build step si se puede evitar.
+- SPA React 18 con tema oscuro, servida desde `src/watchlistarr/static/`. Sin build step: `@babel/standalone` compila los `.jsx` en el navegador. React, ReactDOM, Babel y las fuentes Geist están vendorizados en `static/vendor/` para que el contenedor funcione offline.
+- Backend expone JSON-only bajo `/api/v1/*`; la SPA hace `GET /api/v1/bootstrap` al cargar y luego CRUD contra los recursos individuales.
 - Catálogo completo de páginas y acciones: [`ui-features.md`](ui-features.md).
 
 ## Principios de diseño
@@ -73,7 +74,7 @@ Stack completo en [`tech-stack.md`](tech-stack.md). Resumen:
 
 - **Backend**: Python 3.12+ con FastAPI.
 - **DB**: SQLite + SQLAlchemy 2.0 async + Alembic.
-- **Frontend**: Jinja2 + HTMX + Pico CSS, server-rendered.
+- **Frontend**: React 18 + Babel-standalone, dark theme; vanilla CSS con design tokens en `static/styles.css`. Sin build step. Datos via `fetch` contra `/api/v1/*`.
 - **Scheduling**: APScheduler dentro del mismo proceso FastAPI.
 - **Scraping**: httpx + BeautifulSoup4/lxml + feedparser.
 - **Packaging**: uv + Docker `python:3.12-slim`.

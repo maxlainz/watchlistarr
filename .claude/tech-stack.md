@@ -15,9 +15,9 @@ Cross-references:
 |---|---|---|
 | Lenguaje | Python 3.12+ | Floor pin en `pyproject.toml` |
 | HTTP framework | FastAPI | Async, Pydantic v2 integrado |
-| Templates | Jinja2 | Vía `fastapi.templating.Jinja2Templates` |
-| Frontend interactivo | HTMX | Sin SPA, sin build step |
-| CSS | Pico CSS v2 | Classless, ~10 KB |
+| Frontend | React 18 + Babel-standalone | SPA en `src/watchlistarr/static/`, sin build step (Babel compila los `.jsx` en el navegador). React/ReactDOM/Babel vendorizados en `static/vendor/` para que la imagen Docker funcione offline. |
+| CSS | Vanilla (design tokens en `static/styles.css`) | Dark theme, oklch + variables. Geist y Geist Mono vendorizados en `static/vendor/geist/`. |
+| Data fetching | `fetch` directo contra `/api/v1/*` | JSON-only, sin cliente intermedio. Bootstrap inicial via `GET /api/v1/bootstrap`. |
 | DB | SQLite | Un archivo en volumen Docker |
 | Data layer | SQLAlchemy 2.0 async + Alembic | `Mapped[T]` declarative |
 | Driver SQLite | `aiosqlite` | Async oficial |
@@ -51,7 +51,6 @@ dependencies = [
     "lxml ~= 5.3",
     "feedparser ~= 6.0",
     "apscheduler ~= 3.10",
-    "jinja2 ~= 3.1",
     "pydantic ~= 2.9",
     "pydantic-settings ~= 2.6",
     "structlog ~= 24.4",
@@ -101,16 +100,25 @@ watchlistarr/
 │   │   ├── log_buffer.py
 │   │   └── radarr.py          # serializador JSON
 │   ├── scheduler.py           # APScheduler wiring
-│   ├── routes/
-│   │   ├── ui/                # routers HTML (Jinja2)
-│   │   └── api/               # routers JSON (Radarr endpoints)
-│   └── templates/             # Jinja2 templates
-│       ├── base.html
-│       ├── dashboard.html
-│       ├── users/
-│       ├── lists/
-│       ├── custom_lists/
-│       └── activity/
+│   ├── routes/api/
+│   │   ├── v1.py              # JSON API consumida por la SPA
+│   │   ├── radarr.py          # /<user>/<slug>/, /lists/<slug>/ → Radarr Custom List
+│   │   └── admin.py           # /admin/refresh, /admin/scheduler/sync
+│   └── static/                # SPA shell + JSX + vendor
+│       ├── index.html
+│       ├── styles.css
+│       ├── tweaks-panel.jsx
+│       ├── src/
+│       │   ├── app.jsx
+│       │   ├── icons.jsx
+│       │   ├── ui.jsx
+│       │   ├── data.jsx       # window.API (fetch wrappers)
+│       │   └── pages/
+│       └── vendor/
+│           ├── react.min.js
+│           ├── react-dom.min.js
+│           ├── babel.min.js
+│           └── geist/         # geist.css + .woff2
 └── tests/
     ├── conftest.py
     ├── fixtures/              # HTML/RSS recortados de Letterboxd real

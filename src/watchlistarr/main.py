@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,7 +7,7 @@ import structlog
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -25,17 +23,15 @@ from watchlistarr.db import (
 from watchlistarr.logging import setup_logging
 from watchlistarr.routes.api.admin import router as admin_router
 from watchlistarr.routes.api.radarr import router as radarr_router
-from watchlistarr.routes.ui.activity import router as ui_activity_router
-from watchlistarr.routes.ui.custom_lists import router as ui_custom_lists_router
-from watchlistarr.routes.ui.dashboard import router as ui_dashboard_router
-from watchlistarr.routes.ui.lists import router as ui_lists_router
-from watchlistarr.routes.ui.users import router as ui_users_router
+from watchlistarr.routes.api.v1 import router as api_v1_router
 from watchlistarr.scheduler import JobScheduler
 from watchlistarr.services.log_buffer import install_buffer_handler
 
 logger = structlog.get_logger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
 
 
 def _alembic_upgrade_sync() -> None:
@@ -74,8 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="watchlistarr", version=__version__, lifespan=lifespan)
 
-    static_dir = Path(__file__).resolve().parent / "static"
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
@@ -100,12 +95,13 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
     app.include_router(admin_router)
-    app.include_router(ui_dashboard_router)
-    app.include_router(ui_users_router)
-    app.include_router(ui_lists_router)
-    app.include_router(ui_custom_lists_router)
-    app.include_router(ui_activity_router)
+    app.include_router(api_v1_router)
     app.include_router(radarr_router)
+
+    @app.get("/", include_in_schema=False)
+    async def spa_index() -> FileResponse:
+        return FileResponse(_INDEX_HTML)
+
     return app
 
 

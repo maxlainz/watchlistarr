@@ -30,7 +30,7 @@
 - Funciones pequeñas; una función hace una cosa.
 - `print()` prohibido en código de aplicación; usar `structlog`.
 - No `from x import *`. Imports explícitos.
-- Sin frameworks de UI complejos (decisión cerrada): HTMX + Pico CSS + Jinja2.
+- Frontend: SPA React 18 servida desde `static/`, sin build step (Babel-standalone). No introducir bundlers ni dependencias de build (Vite, webpack, etc.).
 - Tests viven en `tests/`, espejando la estructura de `src/watchlistarr/`.
 
 ## Comentarios
