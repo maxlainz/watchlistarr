@@ -12,7 +12,6 @@ from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.lists import List
 from watchlistarr.models.scrape_runs import ScrapeRun
-from watchlistarr.models.settings import Setting
 from watchlistarr.models.sublist_items import SublistItem
 from watchlistarr.models.sublists import Sublist
 from watchlistarr.models.users import User
@@ -28,7 +27,6 @@ __all__ = [
     "ScrapeRun",
     "ScrapeSource",
     "ScrapeStatus",
-    "Setting",
     "SortOrder",
     "SourceType",
     "Sublist",

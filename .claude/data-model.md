@@ -14,8 +14,8 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 
 | Tabla | Clave / campos | Notas |
 |---|---|---|
-| `users` | `id` (PK), `letterboxd_username` (unique), `display_name`, `added_at` | Un perfil de Letterboxd = un user en la app |
-| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status` | Lista parent (fuente). `max_items`/`sort_order`/rotación viven en `sublists`, no aquí. Watchlist = `source_type='watchlist'` y `slug='watchlist'` |
+| `users` | `id` (PK), `letterboxd_username` (unique), `display_name`, `added_at`, `rss_interval` (nullable), `watchlist_incremental_interval` (nullable), `watchlist_full_interval` (nullable), `films_backstop_interval` (nullable), `discovery_interval` (nullable) | Un perfil de Letterboxd = un user en la app. Los `*_interval` son **overrides**: NULL = heredar el default de la env var del mismo nombre |
+| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status`, `lists_incremental_interval` (nullable), `lists_full_interval` (nullable), `flap_confirm_scrapes` (nullable) | Lista parent (fuente). `max_items`/`sort_order`/rotación viven en `sublists`, no aquí. Watchlist = `source_type='watchlist'` y `slug='watchlist'`. Los `*_interval` y `flap_confirm_scrapes` son overrides; NULL = heredar de env |
 | `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `tmdb_type` (`movie`), `letterboxd_avg_rating` (nullable), `last_resolved_at` | Caché de la resolución HTML → TMDB ID; global, no por user. Rating Letterboxd persistido si la ficha lo expone |
 | `list_items` | `(list_id, tmdb_id)` (PK), `position`, `added_at`, `last_seen_at`, `pending_removal_count` | `pending_removal_count` para anti-flap (ver [`sync-strategy.md`](sync-strategy.md)) |
 | `sublists` | `id` (PK), `user_id` (FK nullable), `parent_list_id` (FK nullable), `parent_combined_kind` (enum nullable), `slug`, `name`, `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `added_after`, `added_before`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Vista servida con cap/filtros/rotación. Exactamente uno de `parent_list_id` o `parent_combined_kind` debe estar set. Slug único por `(user_id, slug)` o por `(parent_combined_kind, slug)` |
@@ -23,7 +23,8 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
 | `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos) |
-| `settings` | `key` (PK, string), `value` (string), `updated_at` | Config dinámica (intervalos, umbrales). Defaults provienen de env en el primer arranque; cambios posteriores los gestiona la UI |
+
+> No hay tabla global de settings. Los **defaults** de todos los intervalos viven en env vars (inmutables tras arranque); los **overrides** viven en columnas nullable de `users` y `lists`. El ritmo del rotation worker (`ROTATION_TICK_INTERVAL`) y `FLAP_CONFIRM_SCRAPES` también vienen de env, este último con override por lista.
 
 **Nota sobre tipado**: las tablas se mapean a SQLAlchemy 2.0 `Mapped[T]` declarative. Migrations en `alembic/versions/` generadas con `--autogenerate`. Detalles en [`tech-stack.md`](tech-stack.md).
 

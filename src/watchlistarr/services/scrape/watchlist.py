@@ -4,12 +4,14 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from watchlistarr.config import get_settings
 from watchlistarr.models.base import utcnow
 from watchlistarr.models.enums import SyncStatus
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
+from watchlistarr.services import intervals
 from watchlistarr.services.letterboxd.client import LetterboxdClient
 from watchlistarr.services.letterboxd.lists import parse_list_items, parse_total_pages
 from watchlistarr.services.scrape.anti_flap import reconcile_full_scrape
@@ -120,6 +122,7 @@ async def sync_watchlist_full(
         list_id=watchlist.id,
         user_id=watchlist.user_id,
         scraped_films=films_by_slug.values(),
+        threshold=intervals.list_flap_threshold(watchlist, get_settings()),
     )
 
     watchlist.last_synced_at = utcnow()

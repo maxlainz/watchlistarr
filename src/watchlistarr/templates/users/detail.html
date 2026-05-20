@@ -2,7 +2,10 @@
 {% block title %}{{ user.letterboxd_username }} · watchlistarr{% endblock %}
 {% block content %}
 <h1>{{ user.letterboxd_username }}</h1>
-<p><a href="/users">← volver a users</a></p>
+<p>
+  <a href="/users">← volver a users</a> ·
+  <a href="/users/{{ user.letterboxd_username }}/intervals">Editar frecuencias</a>
+</p>
 
 {% if not watchlists and not custom %}
 <article>
@@ -33,7 +36,7 @@
 <h2>Listas descubiertas</h2>
 {% if custom %}
   <table>
-    <thead><tr><th>Slug</th><th>Nombre</th><th>Films</th><th>Habilitada</th><th></th></tr></thead>
+    <thead><tr><th>Slug</th><th>Nombre</th><th>Films</th><th>Habilitada</th><th></th><th></th></tr></thead>
     <tbody>
     {% for l in custom %}
       <tr>
@@ -45,6 +48,9 @@
           <form method="post" action="/users/{{ user.letterboxd_username }}/lists/{{ l.id }}/toggle">
             <button type="submit">{{ "Desactivar" if l.enabled else "Activar" }}</button>
           </form>
+        </td>
+        <td>
+          <a href="/users/{{ user.letterboxd_username }}/lists/{{ l.slug }}/settings">Settings</a>
         </td>
       </tr>
     {% endfor %}

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Interval, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from watchlistarr.models.base import Base
@@ -45,6 +45,10 @@ class List(Base):
         ),
         default=SyncStatus.NEVER,
     )
+
+    lists_incremental_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
+    lists_full_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
+    flap_confirm_scrapes: Mapped[int | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship(back_populates="lists")
     items: Mapped[list[ListItem]] = relationship(

@@ -63,18 +63,25 @@ Listado de:
 - Las **sublistas creadas sobre combinadas** (`/all/<slug>/`) con su parent (qué combinada usa) y políticas.
 - Botón **+ Nueva sublista sobre combinada** → mismo editor.
 
-### Settings (`/settings`)
-Form con cada frecuencia configurable:
+### Intervalos de user (`/users/<user>/intervals`)
+Form con 5 inputs opcionales (vacío = heredar default de env, mostrado como placeholder):
 
-- `RSS_INTERVAL`
-- `WATCHLIST_INCREMENTAL_INTERVAL`, `WATCHLIST_FULL_INTERVAL`
-- `LISTS_INCREMENTAL_INTERVAL`, `LISTS_FULL_INTERVAL`
-- `FILMS_BACKSTOP_INTERVAL`
-- `DISCOVERY_INTERVAL`
-- `ROTATION_TICK_INTERVAL`
-- `FLAP_CONFIRM_SCRAPES` (umbral de scrapes para confirmar eliminación)
+- `rss_interval`
+- `watchlist_incremental_interval`, `watchlist_full_interval`
+- `films_backstop_interval`
+- `discovery_interval`
 
-Submit persiste en config y aplica al scheduler (con o sin restart — TBD según stack).
+Submit guarda los overrides en `users.*` y llama a `scheduler.sync_jobs()` para re-crear los jobs de ese user con el nuevo trigger.
+
+### Settings de lista (`/users/<user>/lists/<list-slug>/settings`)
+Form con 3 inputs opcionales (vacío = heredar default de env):
+
+- `lists_incremental_interval`, `lists_full_interval`
+- `flap_confirm_scrapes` (umbral anti-flap)
+
+Submit guarda en `lists.*` y re-aplica el scheduler. Los inputs vacíos se persisten como `NULL`.
+
+> No existe pantalla global `/settings`. `ROTATION_TICK_INTERVAL` (ritmo del worker interno) es env-only.
 
 ### Activity (`/activity`)
 Feed de `scrape_runs` con filtros por user, source (rss/watchlist/lists/films/discovery/rotation) y status. Útil para depurar errores intermitentes.
@@ -99,7 +106,8 @@ Cada fila con un botón **Copiar URL** para pegar en Radarr.
 | Añadir lista privada por URL | `/users/<user>` | Para listas que el discovery no ve |
 | Forzar refresco | dashboard / `/users/<user>` | Scrape incremental al vuelo |
 | Crear / editar / eliminar sublista | `/users/<user>/sublists/...` o `/all/...` | Editor unificado |
-| Ajustar frecuencias y umbral anti-flap | `/settings` | Vars que en otros stacks irían en env |
+| Override intervalos de un user | `/users/<user>/intervals` | Vacío = heredar env |
+| Override settings de una lista | `/users/<user>/lists/<slug>/settings` | Incl. `flap_confirm_scrapes`; vacío = heredar env |
 | Ver log de actividad | `/activity` | Filtrable |
 | Copiar URL para Radarr | `/endpoints` | Una por endpoint |
 

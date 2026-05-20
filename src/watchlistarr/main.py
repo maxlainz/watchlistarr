@@ -28,11 +28,9 @@ from watchlistarr.routes.ui.activity import router as ui_activity_router
 from watchlistarr.routes.ui.combined import router as ui_combined_router
 from watchlistarr.routes.ui.dashboard import router as ui_dashboard_router
 from watchlistarr.routes.ui.endpoints import router as ui_endpoints_router
-from watchlistarr.routes.ui.settings import router as ui_settings_router
 from watchlistarr.routes.ui.sublists import router as ui_sublists_router
 from watchlistarr.routes.ui.users import router as ui_users_router
 from watchlistarr.scheduler import JobScheduler
-from watchlistarr.services.settings import seed_defaults
 
 logger = structlog.get_logger(__name__)
 
@@ -55,9 +53,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # nuestra config para que los logs INFO posteriores sigan saliendo a stdout.
     setup_logging(level=settings.log_level, fmt=settings.log_format)
     init_engine(settings.database_url)
-    async with session_scope() as session:
-        await seed_defaults(session, settings)
-        await session.commit()
 
     scheduler = JobScheduler(get_session_factory(), settings)
     await scheduler.sync_jobs()
@@ -103,7 +98,6 @@ def create_app() -> FastAPI:
     app.include_router(ui_users_router)
     app.include_router(ui_sublists_router)
     app.include_router(ui_combined_router)
-    app.include_router(ui_settings_router)
     app.include_router(ui_activity_router)
     app.include_router(ui_endpoints_router)
     app.include_router(radarr_router)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 import structlog
@@ -13,6 +14,7 @@ from watchlistarr.config import Settings
 from watchlistarr.models.enums import SourceType
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
+from watchlistarr.services import intervals
 from watchlistarr.services.letterboxd.client import LetterboxdClient
 from watchlistarr.services.rotation import rotation_tick
 from watchlistarr.services.scrape.discovery import discover_lists
@@ -23,9 +25,12 @@ from watchlistarr.services.scrape.watchlist import (
     sync_watchlist_full,
     sync_watchlist_incremental,
 )
-from watchlistarr.services.settings import get_duration
 
 logger = structlog.get_logger(__name__)
+
+
+def _seconds(td: timedelta) -> int:
+    return max(1, int(td.total_seconds()))
 
 
 class JobScheduler:
@@ -65,15 +70,15 @@ class JobScheduler:
     async def sync_jobs(self) -> None:
         async with self._factory() as session:
             users = list((await session.execute(select(User))).scalars().all())
-            settings_map = await self._read_settings(session)
-            user_lists = await _user_lists_by_user(session, [u.id for u in users])
+            lists_by_user = await _enabled_lists_by_user(session, [u.id for u in users])
 
         self._scheduler.remove_all_jobs()
 
+        env = self._settings
         self._add(
             "rotation-tick",
             _run_rotation_tick,
-            settings_map["rotation_tick_interval"],
+            _seconds(env.rotation_tick_interval),
             self._factory,
         )
 
@@ -82,78 +87,62 @@ class JobScheduler:
             self._add(
                 f"rss-{uid}",
                 _run_rss,
-                settings_map["rss_interval"],
+                _seconds(intervals.user_rss_interval(user, env)),
                 self._factory,
-                self._settings,
+                env,
                 uid,
             )
             self._add(
                 f"watchlist-incr-{uid}",
                 _run_watchlist_incremental,
-                settings_map["watchlist_incremental_interval"],
+                _seconds(intervals.user_watchlist_incremental(user, env)),
                 self._factory,
-                self._settings,
+                env,
                 uid,
             )
             self._add(
                 f"watchlist-full-{uid}",
                 _run_watchlist_full,
-                settings_map["watchlist_full_interval"],
+                _seconds(intervals.user_watchlist_full(user, env)),
                 self._factory,
-                self._settings,
+                env,
                 uid,
             )
             self._add(
                 f"discovery-{uid}",
                 _run_discovery,
-                settings_map["discovery_interval"],
+                _seconds(intervals.user_discovery(user, env)),
                 self._factory,
-                self._settings,
+                env,
                 uid,
             )
             self._add(
                 f"films-backstop-{uid}",
                 _run_films_backstop,
-                settings_map["films_backstop_interval"],
+                _seconds(intervals.user_films_backstop(user, env)),
                 self._factory,
-                self._settings,
+                env,
                 uid,
             )
-            for list_id in user_lists.get(uid, []):
+            for lst in lists_by_user.get(uid, []):
                 self._add(
-                    f"list-incr-{list_id}",
+                    f"list-incr-{lst.id}",
                     _run_list_incremental,
-                    settings_map["lists_incremental_interval"],
+                    _seconds(intervals.list_incremental(lst, env)),
                     self._factory,
-                    self._settings,
-                    list_id,
+                    env,
+                    lst.id,
                 )
                 self._add(
-                    f"list-full-{list_id}",
+                    f"list-full-{lst.id}",
                     _run_list_full,
-                    settings_map["lists_full_interval"],
+                    _seconds(intervals.list_full(lst, env)),
                     self._factory,
-                    self._settings,
-                    list_id,
+                    env,
+                    lst.id,
                 )
 
         logger.info("scheduler.synced", jobs=len(self._scheduler.get_jobs()))
-
-    async def _read_settings(self, session: AsyncSession) -> dict[str, int]:
-        result: dict[str, int] = {}
-        for key in (
-            "rss_interval",
-            "watchlist_incremental_interval",
-            "watchlist_full_interval",
-            "lists_incremental_interval",
-            "lists_full_interval",
-            "films_backstop_interval",
-            "discovery_interval",
-            "rotation_tick_interval",
-        ):
-            td = await get_duration(session, key)
-            result[key] = max(1, int(td.total_seconds()))
-        return result
 
     def _add(
         self,
@@ -173,21 +162,27 @@ class JobScheduler:
         )
 
 
-async def _user_lists_by_user(session: AsyncSession, user_ids: list[int]) -> dict[int, list[int]]:
+async def _enabled_lists_by_user(
+    session: AsyncSession, user_ids: list[int]
+) -> dict[int, list[ListModel]]:
     if not user_ids:
         return {}
     rows = (
-        await session.execute(
-            select(ListModel.id, ListModel.user_id).where(
-                ListModel.user_id.in_(user_ids),
-                ListModel.source_type == SourceType.LIST,
-                ListModel.enabled.is_(True),
+        (
+            await session.execute(
+                select(ListModel).where(
+                    ListModel.user_id.in_(user_ids),
+                    ListModel.source_type == SourceType.LIST,
+                    ListModel.enabled.is_(True),
+                )
             )
         )
-    ).all()
-    result: dict[int, list[int]] = {}
-    for list_id, user_id in rows:
-        result.setdefault(user_id, []).append(list_id)
+        .scalars()
+        .all()
+    )
+    result: dict[int, list[ListModel]] = {}
+    for lst in rows:
+        result.setdefault(lst.user_id, []).append(lst)
     return result
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Annotated
 
 import structlog
@@ -26,6 +27,23 @@ from watchlistarr.services.scrape.initial_run import (
     validate_username,
 )
 from watchlistarr.services.scrape.watchlist import sync_watchlist_full
+
+
+def _td_seconds(td: timedelta | None) -> int | None:
+    return None if td is None else int(td.total_seconds())
+
+
+def _td_from_form(seconds: int | None) -> timedelta | None:
+    if seconds is None or seconds <= 0:
+        return None
+    return timedelta(seconds=seconds)
+
+
+def _int_from_form(value: int | None) -> int | None:
+    if value is None or value <= 0:
+        return None
+    return value
+
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/users")
@@ -219,3 +237,130 @@ async def toggle_list(
     if scheduler is not None:
         await scheduler.sync_jobs()
     return RedirectResponse(url=f"/users/{username}", status_code=303)
+
+
+_USER_INTERVAL_KEYS: tuple[str, ...] = (
+    "rss_interval",
+    "watchlist_incremental_interval",
+    "watchlist_full_interval",
+    "films_backstop_interval",
+    "discovery_interval",
+)
+
+
+@router.get("/{username}/intervals", response_class=HTMLResponse)
+async def user_intervals_page(
+    request: Request,
+    username: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> HTMLResponse:
+    user = (
+        await session.execute(select(User).where(User.letterboxd_username == username))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404)
+    env = get_settings()
+    overrides = {key: _td_seconds(getattr(user, key)) for key in _USER_INTERVAL_KEYS}
+    defaults = {key: int(getattr(env, key).total_seconds()) for key in _USER_INTERVAL_KEYS}
+    return templates.TemplateResponse(
+        request,
+        "users/intervals.html",
+        {"user": user, "overrides": overrides, "defaults": defaults},
+    )
+
+
+@router.post("/{username}/intervals")
+async def update_user_intervals(
+    request: Request,
+    username: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    rss_interval: Annotated[int | None, Form()] = None,
+    watchlist_incremental_interval: Annotated[int | None, Form()] = None,
+    watchlist_full_interval: Annotated[int | None, Form()] = None,
+    films_backstop_interval: Annotated[int | None, Form()] = None,
+    discovery_interval: Annotated[int | None, Form()] = None,
+) -> RedirectResponse:
+    user = (
+        await session.execute(select(User).where(User.letterboxd_username == username))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404)
+    user.rss_interval = _td_from_form(rss_interval)
+    user.watchlist_incremental_interval = _td_from_form(watchlist_incremental_interval)
+    user.watchlist_full_interval = _td_from_form(watchlist_full_interval)
+    user.films_backstop_interval = _td_from_form(films_backstop_interval)
+    user.discovery_interval = _td_from_form(discovery_interval)
+    await session.commit()
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        await scheduler.sync_jobs()
+    return RedirectResponse(url=f"/users/{username}/intervals", status_code=303)
+
+
+@router.get("/{username}/lists/{list_slug}/settings", response_class=HTMLResponse)
+async def list_settings_page(
+    request: Request,
+    username: str,
+    list_slug: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> HTMLResponse:
+    user = (
+        await session.execute(select(User).where(User.letterboxd_username == username))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404)
+    lst = (
+        await session.execute(
+            select(ListModel).where(ListModel.user_id == user.id, ListModel.slug == list_slug)
+        )
+    ).scalar_one_or_none()
+    if lst is None:
+        raise HTTPException(status_code=404)
+    env = get_settings()
+    overrides = {
+        "lists_incremental_interval": _td_seconds(lst.lists_incremental_interval),
+        "lists_full_interval": _td_seconds(lst.lists_full_interval),
+        "flap_confirm_scrapes": lst.flap_confirm_scrapes,
+    }
+    defaults = {
+        "lists_incremental_interval": int(env.lists_incremental_interval.total_seconds()),
+        "lists_full_interval": int(env.lists_full_interval.total_seconds()),
+        "flap_confirm_scrapes": env.flap_confirm_scrapes,
+    }
+    return templates.TemplateResponse(
+        request,
+        "users/list_settings.html",
+        {"user": user, "lst": lst, "overrides": overrides, "defaults": defaults},
+    )
+
+
+@router.post("/{username}/lists/{list_slug}/settings")
+async def update_list_settings(
+    request: Request,
+    username: str,
+    list_slug: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    lists_incremental_interval: Annotated[int | None, Form()] = None,
+    lists_full_interval: Annotated[int | None, Form()] = None,
+    flap_confirm_scrapes: Annotated[int | None, Form()] = None,
+) -> RedirectResponse:
+    user = (
+        await session.execute(select(User).where(User.letterboxd_username == username))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404)
+    lst = (
+        await session.execute(
+            select(ListModel).where(ListModel.user_id == user.id, ListModel.slug == list_slug)
+        )
+    ).scalar_one_or_none()
+    if lst is None:
+        raise HTTPException(status_code=404)
+    lst.lists_incremental_interval = _td_from_form(lists_incremental_interval)
+    lst.lists_full_interval = _td_from_form(lists_full_interval)
+    lst.flap_confirm_scrapes = _int_from_form(flap_confirm_scrapes)
+    await session.commit()
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        await scheduler.sync_jobs()
+    return RedirectResponse(url=f"/users/{username}/lists/{list_slug}/settings", status_code=303)

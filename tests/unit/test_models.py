@@ -27,7 +27,6 @@ async def test_all_tables_created(engine: AsyncEngine) -> None:
         "list_items",
         "lists",
         "scrape_runs",
-        "settings",
         "sublist_items",
         "sublists",
         "users",

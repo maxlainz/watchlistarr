@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -65,3 +68,27 @@ async def test_reschedule_updates_interval(engine: AsyncEngine) -> None:
     await scheduler.sync_jobs()
     assert await scheduler.reschedule("rotation-tick", 9999) is True
     assert await scheduler.reschedule("nope", 60) is False
+
+
+async def test_user_override_changes_job_interval(engine: AsyncEngine) -> None:
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    user_id = await _seed_user(factory)
+
+    env = Settings(letterboxd_offline=True)
+    scheduler = JobScheduler(factory, env)
+    await scheduler.sync_jobs()
+    base_job = next(j for j in scheduler.jobs if j.id == f"rss-{user_id}")
+    base_interval = base_job.trigger.interval  # type: ignore[attr-defined]
+    assert isinstance(base_job.trigger, IntervalTrigger)
+    assert base_interval == env.rss_interval
+
+    # Set override y volver a sync_jobs → el trigger debe reflejar el nuevo valor.
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        assert user is not None
+        user.rss_interval = timedelta(seconds=42)
+        await session.commit()
+
+    await scheduler.sync_jobs()
+    overridden_job = next(j for j in scheduler.jobs if j.id == f"rss-{user_id}")
+    assert overridden_job.trigger.interval == timedelta(seconds=42)  # type: ignore[attr-defined]

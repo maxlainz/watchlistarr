@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.watched_films import WatchedFilm
-from watchlistarr.services.settings import get_int
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +19,7 @@ async def reconcile_full_scrape(
     list_id: int,
     user_id: int,
     scraped_films: Iterable[Film],
+    threshold: int,
 ) -> None:
     """Aplica anti-flap a las eliminaciones detectadas por un scrape completo.
 
@@ -38,8 +38,6 @@ async def reconcile_full_scrape(
     existing = (
         (await session.execute(select(ListItem).where(ListItem.list_id == list_id))).scalars().all()
     )
-
-    threshold = await get_int(session, "flap_confirm_scrapes")
 
     for item in existing:
         if item.tmdb_id in scraped_tmdb_ids:

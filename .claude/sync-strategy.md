@@ -120,12 +120,16 @@ Luego el user entra al régimen periódico configurado.
 
 ## Configuración
 
-Todas las `*_INTERVAL` y `FLAP_CONFIRM_SCRAPES` se persisten en la tabla `settings` (ver [`data-model.md`](data-model.md)). En el primer arranque, los valores se inicializan desde las env vars del mismo nombre (defaults documentados en [`workflows.md`](workflows.md)).
+Defaults globales: env vars (ver [`workflows.md`](workflows.md)). Son inmutables tras arranque — no hay tabla global de settings ni pantalla `/settings`.
 
-Cambios desde la UI:
-1. Update en `settings`.
-2. El scheduler re-llama a `reschedule_job(job_id, trigger=…)` con el nuevo intervalo.
-3. Sin restart del proceso.
+Overrides por entidad (NULL = heredar default de env):
+
+- `users.rss_interval`, `users.watchlist_incremental_interval`, `users.watchlist_full_interval`, `users.films_backstop_interval`, `users.discovery_interval` — editables en `/users/<user>/intervals`.
+- `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en `/users/<user>/lists/<slug>/settings`.
+- `sublists.rotation_interval` — editable desde el editor de sublista (ya existente).
+- `ROTATION_TICK_INTERVAL` queda solo en env (ritmo del worker interno, no por entidad).
+
+La resolución del valor efectivo vive en `watchlistarr.services.intervals` y siempre se calcula como `entity.<col> or env.<key>` (umbral entero usa `is None`). Cuando un override se guarda o limpia desde la UI, el endpoint llama a `scheduler.sync_jobs()` y los jobs se re-crean con el nuevo trigger sin restart.
 
 ## Cross-references
 

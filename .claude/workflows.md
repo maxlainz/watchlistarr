@@ -83,14 +83,14 @@ git push origin main
 | `LOG_FORMAT` | `plain` | `plain` (dev) / `json` (prod) |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/watchlistarr.db` | Path del archivo SQLite |
 | `USER_AGENT` | `watchlistarr/<version> (+https://github.com/maxlainz/watchlistarr)` | UA enviado a Letterboxd |
-| `RSS_INTERVAL` | `15m` | Default inicial; modificable desde GUI |
-| `WATCHLIST_INCREMENTAL_INTERVAL` | `1h` | Default inicial; modificable desde GUI |
-| `WATCHLIST_FULL_INTERVAL` | `24h` | Default inicial; modificable desde GUI |
-| `LISTS_INCREMENTAL_INTERVAL` | `6h` | Default inicial; modificable desde GUI |
-| `LISTS_FULL_INTERVAL` | `7d` | Default inicial; modificable desde GUI |
-| `FILMS_BACKSTOP_INTERVAL` | `24h` | Default inicial; modificable desde GUI |
-| `DISCOVERY_INTERVAL` | `7d` | Default inicial; modificable desde GUI |
-| `ROTATION_TICK_INTERVAL` | `1h` | Default inicial; modificable desde GUI |
-| `FLAP_CONFIRM_SCRAPES` | `3` | Default inicial; modificable desde GUI |
+| `RSS_INTERVAL` | `15m` | Default global; override por user en `/users/<u>/intervals` |
+| `WATCHLIST_INCREMENTAL_INTERVAL` | `1h` | Default global; override por user |
+| `WATCHLIST_FULL_INTERVAL` | `24h` | Default global; override por user |
+| `LISTS_INCREMENTAL_INTERVAL` | `6h` | Default global; override por lista |
+| `LISTS_FULL_INTERVAL` | `7d` | Default global; override por lista |
+| `FILMS_BACKSTOP_INTERVAL` | `24h` | Default global; override por user |
+| `DISCOVERY_INTERVAL` | `7d` | Default global; override por user |
+| `ROTATION_TICK_INTERVAL` | `1h` | Env-only (ritmo del worker interno) |
+| `FLAP_CONFIRM_SCRAPES` | `3` | Default global; override por lista |
 
-Las "modificable desde GUI" sirven como **default inicial** para popular la tabla `settings` en el primer arranque. Los cambios posteriores en `.env` se ignoran (la DB es autoritativa). Detalles: [`sync-strategy.md`](sync-strategy.md) y [`tech-stack.md`](tech-stack.md).
+Los env vars son **inmutables tras arranque**: para cambiar un valor global, edita `.env` y reinicia. Para cambiar un valor sólo para un user o una lista concreta, edítalo desde la GUI (`/users/<u>/intervals` o `/users/<u>/lists/<slug>/settings`). Detalles: [`sync-strategy.md`](sync-strategy.md) y [`tech-stack.md`](tech-stack.md).
