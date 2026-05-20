@@ -193,9 +193,7 @@ async def _enabled_lists_by_user(
     return result
 
 
-async def _watchlist_enabled_by_user(
-    session: AsyncSession, user_ids: list[int]
-) -> dict[int, bool]:
+async def _watchlist_enabled_by_user(session: AsyncSession, user_ids: list[int]) -> dict[int, bool]:
     if not user_ids:
         return {}
     rows = (

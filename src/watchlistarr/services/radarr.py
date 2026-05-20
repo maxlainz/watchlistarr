@@ -24,9 +24,7 @@ async def serialize_list(session: AsyncSession, list_id: int) -> list[RadarrItem
     return [RadarrItem(tmdb_id=tmdb_id, title=title) for tmdb_id, title in rows]
 
 
-async def serialize_custom_list(
-    session: AsyncSession, custom_list_id: int
-) -> list[RadarrItem]:
+async def serialize_custom_list(session: AsyncSession, custom_list_id: int) -> list[RadarrItem]:
     rows = (
         await session.execute(
             select(CustomListItem.tmdb_id, Film.title)

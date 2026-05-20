@@ -79,9 +79,7 @@ def _sync_status_to_design(status: SyncStatus) -> str | None:
 
 
 def _items_count(session: AsyncSession, list_id: int) -> Any:
-    return session.execute(
-        select(func.count(ListItem.list_id)).where(ListItem.list_id == list_id)
-    )
+    return session.execute(select(func.count(ListItem.list_id)).where(ListItem.list_id == list_id))
 
 
 async def _serialize_user(
@@ -146,9 +144,7 @@ async def _serialize_user(
     }
 
 
-async def _serialize_custom_list(
-    session: AsyncSession, cl: CustomList
-) -> dict[str, Any]:
+async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[str, Any]:
     sources_rows = list(
         (
             await session.execute(
@@ -238,9 +234,7 @@ async def _serialize_custom_list(
 
 
 async def _all_users(session: AsyncSession) -> list[dict[str, Any]]:
-    users = list(
-        (await session.execute(select(User).order_by(User.id))).scalars().all()
-    )
+    users = list((await session.execute(select(User).order_by(User.id))).scalars().all())
     return [await _serialize_user(session, u) for u in users]
 
 
@@ -308,19 +302,13 @@ def _humanize_eta(dt: datetime) -> str:
     return f"in {hours}h {mins:02d}m"
 
 
-async def _dashboard_payload(
-    session: AsyncSession, scheduler: object | None
-) -> dict[str, Any]:
+async def _dashboard_payload(session: AsyncSession, scheduler: object | None) -> dict[str, Any]:
     users_count = (await session.execute(select(func.count(User.id)))).scalar_one()
     lists_count = (
-        await session.execute(
-            select(func.count(ListModel.id)).where(ListModel.enabled.is_(True))
-        )
+        await session.execute(select(func.count(ListModel.id)).where(ListModel.enabled.is_(True)))
     ).scalar_one()
     custom_count = (
-        await session.execute(
-            select(func.count(CustomList.id)).where(CustomList.enabled.is_(True))
-        )
+        await session.execute(select(func.count(CustomList.id)).where(CustomList.enabled.is_(True)))
     ).scalar_one()
     items_served = (
         await session.execute(select(func.count(CustomListItem.custom_list_id)))
@@ -337,23 +325,15 @@ async def _dashboard_payload(
     ).scalar_one()
 
     runs = list(
-        (
-            await session.execute(
-                select(ScrapeRun)
-                .order_by(desc(ScrapeRun.started_at))
-                .limit(12)
-            )
-        )
+        (await session.execute(select(ScrapeRun).order_by(desc(ScrapeRun.started_at)).limit(12)))
         .scalars()
         .all()
     )
     users_by_id = {
-        u.id: u.letterboxd_username
-        for u in (await session.execute(select(User))).scalars().all()
+        u.id: u.letterboxd_username for u in (await session.execute(select(User))).scalars().all()
     }
     lists_by_id = {
-        lst.id: lst
-        for lst in (await session.execute(select(ListModel))).scalars().all()
+        lst.id: lst for lst in (await session.execute(select(ListModel))).scalars().all()
     }
     recent_activity = []
     for run in runs:
@@ -367,7 +347,9 @@ async def _dashboard_payload(
         status = (
             "error"
             if run.status is ScrapeStatus.ERROR
-            else "info" if kind == "watched" else "success"
+            else "info"
+            if kind == "watched"
+            else "success"
         )
         target_label: str
         if run.source in (ScrapeSource.LIST, ScrapeSource.WATCHLIST) and run.target_id is not None:
@@ -466,9 +448,7 @@ async def add_user(
         await session.execute(select(User).where(User.letterboxd_username == validated))
     ).scalar_one_or_none()
     if existing is not None:
-        return JSONResponse(
-            await _serialize_user(session, existing), status_code=200
-        )
+        return JSONResponse(await _serialize_user(session, existing), status_code=200)
 
     user = User(letterboxd_username=validated)
     session.add(user)
@@ -607,17 +587,13 @@ async def _save_sources(
     )
     for lid in include_ids:
         session.add(
-            CustomListSource(
-                custom_list_id=custom_list.id, list_id=lid, role=SourceRole.INCLUDE
-            )
+            CustomListSource(custom_list_id=custom_list.id, list_id=lid, role=SourceRole.INCLUDE)
         )
     for lid in subtract_ids:
         if lid in include_ids:
             continue
         session.add(
-            CustomListSource(
-                custom_list_id=custom_list.id, list_id=lid, role=SourceRole.SUBTRACT
-            )
+            CustomListSource(custom_list_id=custom_list.id, list_id=lid, role=SourceRole.SUBTRACT)
         )
 
 
@@ -630,9 +606,7 @@ async def _save_excluded(
         )
     )
     for uid in user_ids:
-        session.add(
-            CustomListExcludedWatcher(custom_list_id=custom_list.id, user_id=uid)
-        )
+        session.add(CustomListExcludedWatcher(custom_list_id=custom_list.id, user_id=uid))
 
 
 def _split_sources(payload: dict[str, Any]) -> tuple[list[int], list[int]]:
@@ -652,18 +626,14 @@ def _split_sources(payload: dict[str, Any]) -> tuple[list[int], list[int]]:
     return include_ids, subtract_ids
 
 
-async def _resolve_excluded_user_ids(
-    session: AsyncSession, payload: dict[str, Any]
-) -> list[int]:
+async def _resolve_excluded_user_ids(session: AsyncSession, payload: dict[str, Any]) -> list[int]:
     if "excludedUserIds" in payload:
         return [int(x) for x in payload["excludedUserIds"]]
     usernames = payload.get("excludedWatchers", []) or []
     if not usernames:
         return []
     rows = (
-        await session.execute(
-            select(User.id).where(User.letterboxd_username.in_(usernames))
-        )
+        await session.execute(select(User.id).where(User.letterboxd_username.in_(usernames)))
     ).all()
     return [r[0] for r in rows]
 
@@ -814,9 +784,7 @@ async def activity_tail(
         }
         for line in lines
     ]
-    return JSONResponse(
-        {"lines": payload, "latestSeq": buf.latest_seq()}
-    )
+    return JSONResponse({"lines": payload, "latestSeq": buf.latest_seq()})
 
 
 @router.get("/activity/download")
