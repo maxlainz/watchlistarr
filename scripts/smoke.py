@@ -1,7 +1,8 @@
 """Smoke test end-to-end de watchlistarr.
 
-Arranca uvicorn contra una DB temporal con LETTERBOXD_OFFLINE=true, siembra dos
-users de prueba, ejecuta GETs a los endpoints clave y valida el resultado.
+Arranca uvicorn contra una DB temporal con LETTERBOXD_OFFLINE=true, siembra
+users + listas + custom list de prueba, y valida que la SPA shell, el JSON API
+y los endpoints Radarr respondan lo esperado.
 
 Uso:
     uv run python scripts/smoke.py
@@ -47,14 +48,21 @@ def _wait_healthz(base_url: str, timeout: float = 15.0) -> None:
 
 
 async def _seed(db_url: str) -> None:
-    from watchlistarr.models.enums import SourceType, WatchedSource
+    from watchlistarr.models.custom_list_sources import CustomListSource
+    from watchlistarr.models.custom_lists import CustomList
+    from watchlistarr.models.enums import (
+        CombinationOp,
+        SortOrder,
+        SourceRole,
+        SourceType,
+        WatchedSource,
+    )
     from watchlistarr.models.films import Film
     from watchlistarr.models.list_items import ListItem
     from watchlistarr.models.lists import List as ListModel
-    from watchlistarr.models.sublist_items import SublistItem
-    from watchlistarr.models.sublists import Sublist
     from watchlistarr.models.users import User
     from watchlistarr.models.watched_films import WatchedFilm
+    from watchlistarr.services.custom_lists import init_items
 
     engine = create_async_engine(db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -78,12 +86,14 @@ async def _seed(db_url: str) -> None:
                 source_type=SourceType.WATCHLIST,
                 slug="watchlist",
                 name="WL",
+                enabled=True,
             )
             bob_wl = ListModel(
                 user_id=bob.id,
                 source_type=SourceType.WATCHLIST,
                 slug="watchlist",
                 name="WL",
+                enabled=True,
             )
             session.add_all([alice_wl, bob_wl])
             await session.flush()
@@ -96,21 +106,34 @@ async def _seed(db_url: str) -> None:
                     ListItem(list_id=bob_wl.id, tmdb_id=40, position=1),
                 ]
             )
-            top = Sublist(
-                user_id=alice.id,
-                parent_list_id=alice_wl.id,
-                slug="top",
-                name="Top",
+            session.add(WatchedFilm(user_id=alice.id, tmdb_id=10, source=WatchedSource.RSS))
+            await session.flush()
+
+            house = CustomList(
+                slug="house",
+                name="House watchlist",
+                op=CombinationOp.UNION,
+                sort_order=SortOrder.LETTERBOXD,
+                enabled=True,
             )
-            session.add(top)
+            session.add(house)
             await session.flush()
             session.add_all(
                 [
-                    SublistItem(sublist_id=top.id, tmdb_id=10, position=0),
-                    SublistItem(sublist_id=top.id, tmdb_id=20, position=1),
+                    CustomListSource(
+                        custom_list_id=house.id,
+                        list_id=alice_wl.id,
+                        role=SourceRole.INCLUDE,
+                    ),
+                    CustomListSource(
+                        custom_list_id=house.id,
+                        list_id=bob_wl.id,
+                        role=SourceRole.INCLUDE,
+                    ),
                 ]
             )
-            session.add(WatchedFilm(user_id=alice.id, tmdb_id=10, source=WatchedSource.RSS))
+            await session.flush()
+            await init_items(session, house)
             await session.commit()
     finally:
         await engine.dispose()
@@ -125,35 +148,67 @@ def _exercise(base_url: str) -> None:
     r = httpx.get(f"{base_url}/healthz")
     _assert(r.status_code == 200, f"/healthz != 200: {r.status_code}")
 
+    # SPA shell: HTML estático, los componentes los renderiza React en el cliente.
     r = httpx.get(f"{base_url}/")
     _assert(r.status_code == 200, f"/ != 200: {r.status_code}")
-    _assert("Dashboard" in r.text, "dashboard sin marcador")
+    _assert("Watchlistarr" in r.text, "shell sin <title>")
+    _assert('id="root"' in r.text, "shell sin mountpoint")
 
-    r = httpx.get(f"{base_url}/alice/watchlist/")
-    _assert(r.status_code == 200, "alice watchlist")
+    for path in (
+        "/static/styles.css",
+        "/static/vendor/react.min.js",
+        "/static/vendor/geist/geist.css",
+    ):
+        rr = httpx.get(f"{base_url}{path}")
+        _assert(rr.status_code == 200, f"{path} != 200: {rr.status_code}")
+
+    # JSON API bootstrap.
+    r = httpx.get(f"{base_url}/api/v1/bootstrap")
+    _assert(r.status_code == 200, f"bootstrap != 200: {r.status_code}")
     body = r.json()
-    _assert(isinstance(body, list) and len(body) == 3, f"alice watchlist len: {len(body)}")
-    _assert(all(isinstance(i["tmdb_id"], int) for i in body), "tmdb_id no es int")
+    for key in ("users", "customLists", "dashboard"):
+        _assert(key in body, f"bootstrap missing {key}")
+    usernames = {u["username"] for u in body["users"]}
+    _assert(usernames == {"alice", "bob"}, f"users inesperados: {usernames}")
+    for u in body["users"]:
+        _assert("discoveryRunning" in u, f"user {u['username']} sin discoveryRunning")
+        _assert("syncingListIds" in u, f"user {u['username']} sin syncingListIds")
+        _assert(u["discoveryRunning"] is False, f"user {u['username']} discoveryRunning != False")
+        _assert(u["syncingListIds"] == [], f"user {u['username']} syncingListIds no vacío")
+    _assert(
+        any(cl["slug"] == "house" for cl in body["customLists"]),
+        "house custom list no aparece",
+    )
 
-    r = httpx.get(f"{base_url}/all/watchlist/union/")
-    _assert(r.status_code == 200 and len(r.json()) == 4, "union ≠ 4")
+    r = httpx.get(f"{base_url}/api/v1/activity?since=0")
+    _assert(r.status_code == 200, f"activity != 200: {r.status_code}")
+    payload = r.json()
+    _assert("lines" in payload and "latestSeq" in payload, "activity payload incompleto")
 
-    r = httpx.get(f"{base_url}/all/watchlist/intersection/")
-    _assert(r.status_code == 200 and len(r.json()) == 1, "intersection ≠ 1")
+    # Radarr endpoints (DB-authoritative).
+    r = httpx.get(f"{base_url}/alice/watchlist/")
+    _assert(r.status_code == 200, "alice watchlist != 200")
+    items = r.json()
+    _assert(isinstance(items, list) and len(items) == 3, f"alice watchlist len: {len(items)}")
+    _assert(all(isinstance(i["tmdb_id"], int) for i in items), "tmdb_id no es int")
 
-    r = httpx.get(f"{base_url}/all/watchlist/union-unwatched/")
-    _assert(r.status_code == 200 and len(r.json()) == 3, "union-unwatched ≠ 3")
-
-    r = httpx.get(f"{base_url}/alice/top/")
-    _assert(r.status_code == 200 and len(r.json()) == 2, "alice/top ≠ 2")
+    r = httpx.get(f"{base_url}/lists/house/")
+    _assert(r.status_code == 200, "house custom list != 200")
+    _assert(len(r.json()) == 4, f"house items != 4: {len(r.json())}")
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")
     _assert(r.status_code == 404, "404 esperado para user inexistente")
 
+    # ETag / 304.
     r = httpx.get(f"{base_url}/alice/watchlist/")
     etag = r.headers["etag"]
     r304 = httpx.get(f"{base_url}/alice/watchlist/", headers={"If-None-Match": etag})
     _assert(r304.status_code == 304, f"esperado 304, fue {r304.status_code}")
+
+    # Las viejas rutas HTML server-rendered ya no existen.
+    for legacy in ("/users", "/lists-view", "/custom-lists", "/activity"):
+        rr = httpx.get(f"{base_url}{legacy}")
+        _assert(rr.status_code == 404, f"{legacy} debería ser 404, fue {rr.status_code}")
 
 
 def main() -> int:

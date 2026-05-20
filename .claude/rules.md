@@ -3,10 +3,29 @@
 ## Git
 
 - Rama de trabajo: `dev`. Nunca commitear directamente a `main`.
-- Tras cada edición de código → commit en `dev` → `git push` inmediato.
+- Tras cada edición de código → commit en `dev` → `git push` inmediato → **rebuild del contenedor dev local**. Detalle del rebuild en [`workflows.md`](workflows.md#refresh-local-tras-cada-commit).
 - Merge a `main` solo si el usuario lo pide explícitamente. El mensaje debe resumir todo lo nuevo desde el anterior commit en `main`.
 - `CLAUDE.md` y `.claude/` **sí** entran a `main` en este repo (no se excluyen en el merge).
 - Commits en español, mensaje corto y descriptivo. Prefijos convencionales (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`) bienvenidos pero no obligatorios.
+
+## CI (GitHub Actions, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
+
+CI corre 5 steps en `qa`: `ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`. Antes de pushear, ejecutar **todos** localmente — un fallo en cualquiera bloquea el merge.
+
+- **`ruff format --check`** se rompe en silencio cuando añades código nuevo sin formatear. Correr `uv run ruff format src tests scripts` antes del commit.
+- **`scripts/smoke.py`** importa modelos y golpea endpoints reales con un server real. Si renombras un modelo, cambias el esquema de la DB, alteras una ruta HTTP o cambias la forma del JSON, actualízalo en el mismo commit. Es la única red de seguridad end-to-end del CI.
+- **Cualquier cambio en `pyproject.toml`** (deps añadidas/quitadas) requiere `uv lock` + commitear `uv.lock`. CI usa `--frozen` y falla si no concuerdan.
+- Cuando añadas/borres rutas HTTP, actualiza también los asserts `404` en `scripts/smoke.py` y `tests/integration/test_ui_smoke.py` para que las rutas viejas sigan siendo verificadas como muertas.
+
+Comando único antes de pushear:
+
+```
+uv run ruff check src tests scripts && \
+uv run ruff format --check src tests scripts && \
+uv run mypy src && \
+uv run pytest -q && \
+uv run python scripts/smoke.py
+```
 
 ## Idioma
 
@@ -30,7 +49,7 @@
 - Funciones pequeñas; una función hace una cosa.
 - `print()` prohibido en código de aplicación; usar `structlog`.
 - No `from x import *`. Imports explícitos.
-- Sin frameworks de UI complejos (decisión cerrada): HTMX + Pico CSS + Jinja2.
+- Frontend: SPA React 18 servida desde `static/`, sin build step (Babel-standalone). No introducir bundlers ni dependencias de build (Vite, webpack, etc.).
 - Tests viven en `tests/`, espejando la estructura de `src/watchlistarr/`.
 
 ## Comentarios

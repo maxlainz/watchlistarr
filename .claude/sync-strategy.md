@@ -124,7 +124,7 @@ Defaults globales: env vars (ver [`workflows.md`](workflows.md)). Son inmutables
 Overrides por entidad (NULL = heredar default de env):
 
 - `users.rss_interval`, `users.watchlist_incremental_interval`, `users.watchlist_full_interval`, `users.films_backstop_interval`, `users.discovery_interval` — editables en el colapsable "Advanced" del detalle de user (`/users/<user>`).
-- `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en el colapsable "Advanced" por lista en `/lists-view`.
+- `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en el colapsable "Advanced" por lista en la pestaña Lists.
 - `custom_lists.rotation_interval` — editable desde el editor de custom list.
 - `ROTATION_TICK_INTERVAL` queda solo en env (ritmo del worker interno, no por entidad).
 

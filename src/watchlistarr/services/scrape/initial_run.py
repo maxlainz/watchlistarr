@@ -66,5 +66,3 @@ async def ensure_watchlist_row(session: AsyncSession, user: User) -> ListModel:
     session.add(row)
     await session.flush()
     return row
-
-

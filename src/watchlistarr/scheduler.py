@@ -53,6 +53,11 @@ class JobScheduler:
     def jobs(self) -> list[Any]:
         return list(self._scheduler.get_jobs())
 
+    def upcoming_jobs(self, limit: int = 5) -> list[dict[str, Any]]:
+        jobs = [j for j in self._scheduler.get_jobs() if j.next_run_time is not None]
+        jobs.sort(key=lambda j: j.next_run_time)
+        return [{"id": j.id, "next_run_time": j.next_run_time} for j in jobs[:limit]]
+
     async def trigger_now(self, job_id: str) -> bool:
         job = self._scheduler.get_job(job_id)
         if job is None:
@@ -188,9 +193,7 @@ async def _enabled_lists_by_user(
     return result
 
 
-async def _watchlist_enabled_by_user(
-    session: AsyncSession, user_ids: list[int]
-) -> dict[int, bool]:
+async def _watchlist_enabled_by_user(session: AsyncSession, user_ids: list[int]) -> dict[int, bool]:
     if not user_ids:
         return {}
     rows = (

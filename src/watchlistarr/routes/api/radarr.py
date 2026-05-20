@@ -19,7 +19,9 @@ from watchlistarr.services.radarr import (
     serialize_list,
 )
 
-RESERVED_USERS: frozenset[str] = frozenset({"all", "api", "admin", "static", "health", "_", "lists"})
+RESERVED_USERS: frozenset[str] = frozenset(
+    {"all", "api", "admin", "static", "health", "_", "lists"}
+)
 
 router = APIRouter()
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import itertools
 import logging
+import re
 import threading
 from collections import deque
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -12,6 +14,8 @@ class LogLine:
     seq: int
     level: str
     message: str
+    ts: datetime
+    src: str
 
 
 class _LogBuffer:
@@ -20,9 +24,17 @@ class _LogBuffer:
         self._counter = itertools.count(start=1)
         self._lock = threading.Lock()
 
-    def append(self, level: str, message: str) -> None:
+    def append(self, level: str, message: str, src: str) -> None:
         with self._lock:
-            self._lines.append(LogLine(seq=next(self._counter), level=level, message=message))
+            self._lines.append(
+                LogLine(
+                    seq=next(self._counter),
+                    level=level,
+                    message=message,
+                    ts=datetime.now(tz=UTC),
+                    src=src,
+                )
+            )
 
     def snapshot(self, since: int = 0, limit: int | None = None) -> list[LogLine]:
         with self._lock:
@@ -40,7 +52,8 @@ class _LogBuffer:
     def dump_text(self) -> str:
         with self._lock:
             return "\n".join(
-                f"{line.level:<5} {line.message}" for line in self._lines
+                f"{line.ts.isoformat()} {line.level:<5} [{line.src}] {line.message}"
+                for line in self._lines
             )
 
 
@@ -51,6 +64,22 @@ def get_buffer() -> _LogBuffer:
     return _buffer
 
 
+# structlog renderer emits "key=value" pairs; the event key carries the dotted
+# source (e.g. "letterboxd.client"). Pull it out so the activity tail can
+# colour-group lines by component without re-running the structlog processors.
+_EVENT_RE = re.compile(r"\bevent=(?:'([^']*)'|\"([^\"]*)\"|(\S+))")
+
+
+def _extract_src(record: logging.LogRecord, fallback_msg: str) -> str:
+    match = _EVENT_RE.search(fallback_msg)
+    if match is not None:
+        event = next((g for g in match.groups() if g), None)
+        if event:
+            return event.split(".", 1)[0]
+    name = record.name or "root"
+    return name.rsplit(".", 1)[-1]
+
+
 class BufferHandler(logging.Handler):
     """Logging handler that mirrors log records into the in-memory buffer."""
 
@@ -59,7 +88,8 @@ class BufferHandler(logging.Handler):
             msg = self.format(record)
         except Exception:
             msg = record.getMessage()
-        _buffer.append(record.levelname, msg)
+        src = _extract_src(record, msg)
+        _buffer.append(record.levelname, msg, src)
 
 
 def install_buffer_handler() -> BufferHandler:

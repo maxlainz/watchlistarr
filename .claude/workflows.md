@@ -50,6 +50,38 @@ Servicio disponible en `http://localhost:<HTTP_PORT>`. Stack completo: [`tech-st
 - Desde la UI: botón "Refrescar" en cada lista (lanza el scraper de esa lista fuera de su ciclo).
 - Desde CLI: TBD según stack (`docker exec watchlistarr <comando>` o endpoint admin).
 
+## Refresh local tras cada commit
+
+El stack `docker-compose.dev.yml` corre `watchlistarr-dev` en `:8088` (8080 está ocupado por FutureFin). Cada commit en `dev` debe ir seguido de un rebuild para que el QC manual vea siempre la última build:
+
+```bash
+git push origin dev && \
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+Verificación rápida (10 s):
+
+```bash
+curl -sf http://127.0.0.1:8088/healthz
+curl -sf http://127.0.0.1:8088/api/v1/bootstrap | jq '.users | length'
+```
+
+Si una respuesta falla, ver `docker compose -f docker-compose.dev.yml logs -f`. El volumen `./data` sobrevive al rebuild, así que el estado del QC se conserva.
+
+## CI antes de pushear
+
+`.github/workflows/ci.yml` corre 5 steps. Reproducirlos en un solo bloque:
+
+```bash
+uv run ruff check src tests scripts && \
+uv run ruff format --check src tests scripts && \
+uv run mypy src && \
+uv run pytest -q && \
+uv run python scripts/smoke.py
+```
+
+Reglas operativas asociadas (qué actualizar en qué condiciones): [`rules.md` → CI](rules.md#ci-github-actions-githubworkflowsciyml).
+
 ## Deploy con Docker
 
 ```bash
@@ -84,13 +116,13 @@ git push origin main
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/watchlistarr.db` | Path del archivo SQLite |
 | `USER_AGENT` | `watchlistarr/<version> (+https://github.com/maxlainz/watchlistarr)` | UA enviado a Letterboxd |
 | `RSS_INTERVAL` | `15m` | Env-only |
-| `WATCHLIST_INCREMENTAL_INTERVAL` | `1h` | Default global; override por watchlist en `/lists-view` (fila watchlist → ⚙ Advanced) |
-| `WATCHLIST_FULL_INTERVAL` | `24h` | Default global; override por watchlist en `/lists-view` |
-| `LISTS_INCREMENTAL_INTERVAL` | `6h` | Default global; override por lista en `/lists-view` |
-| `LISTS_FULL_INTERVAL` | `7d` | Default global; override por lista en `/lists-view` |
+| `WATCHLIST_INCREMENTAL_INTERVAL` | `1h` | Default global; override por watchlist en la pestaña Lists (fila watchlist → ⚙ Advanced) |
+| `WATCHLIST_FULL_INTERVAL` | `24h` | Default global; override por watchlist en la pestaña Lists |
+| `LISTS_INCREMENTAL_INTERVAL` | `6h` | Default global; override por lista en la pestaña Lists |
+| `LISTS_FULL_INTERVAL` | `7d` | Default global; override por lista en la pestaña Lists |
 | `FILMS_BACKSTOP_INTERVAL` | `24h` | Env-only |
 | `DISCOVERY_INTERVAL` | `7d` | Env-only |
 | `ROTATION_TICK_INTERVAL` | `1h` | Env-only (ritmo del worker interno) |
-| `FLAP_CONFIRM_SCRAPES` | `3` | Default global; override por lista en `/lists-view` |
+| `FLAP_CONFIRM_SCRAPES` | `3` | Default global; override por lista en la pestaña Lists |
 
-Los env vars son **inmutables tras arranque**: para cambiar un valor global, edita `.env` y reinicia. Para overrides per-lista/per-watchlist usa el ⚙ Advanced en `/lists-view`. La rotación per-custom-list (incl. `rotation_interval` en horas) vive en el editor de `/custom-lists/<slug>/edit`. Detalles: [`sync-strategy.md`](sync-strategy.md) y [`tech-stack.md`](tech-stack.md).
+Los env vars son **inmutables tras arranque**: para cambiar un valor global, edita `.env` y reinicia. Para overrides per-lista/per-watchlist usa el ⚙ Advanced en la pestaña Lists. La rotación per-custom-list (incl. `rotation_interval` en horas) vive en el editor de la pestaña Custom Lists. Detalles: [`sync-strategy.md`](sync-strategy.md) y [`tech-stack.md`](tech-stack.md).

@@ -16,41 +16,52 @@ async def with_scrape_audit[T](
     body: Callable[[AsyncSession], Awaitable[T]],
 ) -> T:
     started = datetime.now(UTC)
+    # Record the run as RUNNING up-front so callers can detect in-flight scrapes.
+    run_id = await _start(session_factory, source, target_id, started)
     try:
         async with session_factory() as work:
             result = await body(work)
             await work.commit()
         ended = datetime.now(UTC)
-        await _record(
-            session_factory, source, target_id, started, ended, ScrapeStatus.SUCCESS, None
-        )
+        await _finish(session_factory, run_id, ended, ScrapeStatus.SUCCESS, None)
         return result
     except Exception as exc:
         ended = datetime.now(UTC)
-        await _record(
-            session_factory, source, target_id, started, ended, ScrapeStatus.ERROR, str(exc)[:2000]
-        )
+        await _finish(session_factory, run_id, ended, ScrapeStatus.ERROR, str(exc)[:2000])
         raise
 
 
-async def _record(
+async def _start(
     session_factory: async_sessionmaker[AsyncSession],
     source: ScrapeSource,
     target_id: int | None,
     started: datetime,
+) -> int:
+    async with session_factory() as audit:
+        run = ScrapeRun(
+            source=source,
+            target_id=target_id,
+            started_at=started,
+            status=ScrapeStatus.RUNNING,
+        )
+        audit.add(run)
+        await audit.commit()
+        await audit.refresh(run)
+        return run.id
+
+
+async def _finish(
+    session_factory: async_sessionmaker[AsyncSession],
+    run_id: int,
     ended: datetime,
     status: ScrapeStatus,
     error: str | None,
 ) -> None:
     async with session_factory() as audit:
-        audit.add(
-            ScrapeRun(
-                source=source,
-                target_id=target_id,
-                started_at=started,
-                ended_at=ended,
-                status=status,
-                error=error,
-            )
-        )
+        run = await audit.get(ScrapeRun, run_id)
+        if run is None:
+            return
+        run.status = status
+        run.ended_at = ended
+        run.error = error
         await audit.commit()

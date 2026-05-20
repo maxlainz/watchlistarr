@@ -67,9 +67,7 @@ async def _make_custom_list(
     cl = CustomList(**defaults)  # type: ignore[arg-type]
     session.add(cl)
     await session.flush()
-    session.add(
-        CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE)
-    )
+    session.add(CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE))
     await session.flush()
     return cl
 
@@ -107,9 +105,7 @@ async def test_recalculate_drops_invalid_and_refills(session: AsyncSession) -> N
     film2 = await session.get(Film, 2)
     assert film2 is not None
     film2.year = 1990
-    cl = await _make_custom_list(
-        session, parent, slug="modern", max_items=3, min_year=2000
-    )
+    cl = await _make_custom_list(session, parent, slug="modern", max_items=3, min_year=2000)
     session.add_all(
         [
             CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0),

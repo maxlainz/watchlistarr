@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import pytest
@@ -46,7 +44,7 @@ async def _seed_alice_with_list(factory: async_sessionmaker[AsyncSession]) -> No
 
 
 @pytest.fixture
-async def seeded_app(db_url: str, app: FastAPI) -> FastAPI:
+async def seeded_app(db_url: str, app: "FastAPI") -> "FastAPI":
     engine = create_async_engine(db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     await _seed_alice_with_list(factory)
@@ -54,117 +52,96 @@ async def seeded_app(db_url: str, app: FastAPI) -> FastAPI:
     return app
 
 
-def test_dashboard_renders(app: FastAPI) -> None:
+def test_spa_shell_renders(app: "FastAPI") -> None:
     with TestClient(app) as client:
         response = client.get("/")
     assert response.status_code == 200
-    assert "Dashboard" in response.text
+    assert "Watchlistarr" in response.text
+    assert "/static/src/app.jsx" in response.text
 
 
-def test_users_list_renders(app: FastAPI) -> None:
+def test_bootstrap_endpoint(app: "FastAPI") -> None:
     with TestClient(app) as client:
-        response = client.get("/users")
+        response = client.get("/api/v1/bootstrap")
     assert response.status_code == 200
-    assert "Users" in response.text
+    body = response.json()
+    assert {"users", "customLists", "dashboard"}.issubset(body.keys())
+    assert "stats" in body["dashboard"]
 
 
-def test_lists_view_renders(app: FastAPI) -> None:
+def test_users_list_endpoint(app: "FastAPI") -> None:
     with TestClient(app) as client:
-        response = client.get("/lists-view")
+        response = client.get("/api/v1/users")
     assert response.status_code == 200
-    assert "Lists" in response.text
+    assert isinstance(response.json(), list)
 
 
-def test_custom_lists_index_renders(app: FastAPI) -> None:
+def test_custom_lists_endpoint(app: "FastAPI") -> None:
     with TestClient(app) as client:
-        response = client.get("/custom-lists")
+        response = client.get("/api/v1/custom-lists")
     assert response.status_code == 200
-    assert "Custom Lists" in response.text
+    assert isinstance(response.json(), list)
 
 
-def test_custom_lists_new_form_renders(app: FastAPI) -> None:
+def test_activity_endpoint(app: "FastAPI") -> None:
     with TestClient(app) as client:
-        response = client.get("/custom-lists/new")
+        response = client.get("/api/v1/activity")
     assert response.status_code == 200
-    assert "New custom list" in response.text
+    body = response.json()
+    assert "lines" in body
+    assert "latestSeq" in body
 
 
-def test_activity_renders(app: FastAPI) -> None:
+def test_legacy_html_routes_gone(app: "FastAPI") -> None:
     with TestClient(app) as client:
-        response = client.get("/activity")
-    assert response.status_code == 200
-    assert "Activity" in response.text
+        for path in ("/users", "/lists-view", "/custom-lists", "/activity"):
+            assert client.get(path).status_code == 404
 
 
-def test_settings_route_gone(app: FastAPI) -> None:
-    with TestClient(app) as client:
-        response = client.get("/settings")
-    assert response.status_code == 404
-
-
-def test_endpoints_route_gone(app: FastAPI) -> None:
-    with TestClient(app) as client:
-        response = client.get("/endpoints")
-    assert response.status_code == 404
-
-
-def test_combined_route_gone(app: FastAPI) -> None:
-    with TestClient(app) as client:
-        response = client.get("/combined")
-    assert response.status_code == 404
-
-
-def test_user_detail_renders_with_lists(seeded_app: FastAPI) -> None:
+def test_user_detail_via_api(seeded_app: "FastAPI") -> None:
     with TestClient(seeded_app) as client:
-        response = client.get("/users/alice")
+        response = client.get("/api/v1/users")
     assert response.status_code == 200
-    assert "Discovered lists" in response.text
-    # Watchlist and Favs both appear in the discovered table
-    assert "Watchlist" in response.text
-    assert "Favs" in response.text
+    users = response.json()
+    alice = next(u for u in users if u["username"] == "alice")
+    assert alice["enabledCount"] == 2
+    assert any(lst["name"] == "Watchlist" for lst in alice["lists"])
+    assert any(lst["name"] == "Favs" for lst in alice["lists"])
 
 
-def test_user_intervals_route_gone(seeded_app: FastAPI) -> None:
+def test_list_settings_via_api(seeded_app: "FastAPI") -> None:
     with TestClient(seeded_app) as client:
+        users = client.get("/api/v1/users").json()
+        alice = next(u for u in users if u["username"] == "alice")
+        favs = next(lst for lst in alice["lists"] if lst["name"] == "Favs")
+
         resp = client.post(
-            "/users/alice/intervals",
-            data={"rss_interval": "300"},
-            follow_redirects=False,
+            f"/api/v1/users/alice/lists/{favs['id']}/settings",
+            json={"incrementalInterval": 6, "fullInterval": None, "flapConfirmScrapes": 5},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+
+        after = client.get("/api/v1/users").json()
+        alice2 = next(u for u in after if u["username"] == "alice")
+        favs2 = next(lst for lst in alice2["lists"] if lst["name"] == "Favs")
+        assert favs2["advanced"]["incrementalInterval"] == 6
+        assert favs2["advanced"]["flapConfirmScrapes"] == 5
 
 
-def test_list_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
+def test_watchlist_settings_via_api(seeded_app: "FastAPI") -> None:
     with TestClient(seeded_app) as client:
+        users = client.get("/api/v1/users").json()
+        alice = next(u for u in users if u["username"] == "alice")
+        wl = next(lst for lst in alice["lists"] if lst["sourceType"] == "watchlist")
+
         resp = client.post(
-            "/lists-view/alice/favs/settings",
-            data={
-                "incremental_interval": "6",
-                "full_interval": "",
-                "flap_confirm_scrapes": "5",
-            },
-            follow_redirects=False,
+            f"/api/v1/users/alice/lists/{wl['id']}/settings",
+            json={"incrementalInterval": 2, "fullInterval": 48, "flapConfirmScrapes": None},
         )
-        assert resp.status_code == 303
+        assert resp.status_code == 200
 
-        after = client.get("/lists-view")
-        assert 'value="6"' in after.text
-        assert 'value="5"' in after.text
-
-
-def test_watchlist_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
-    with TestClient(seeded_app) as client:
-        resp = client.post(
-            "/lists-view/alice/watchlist/settings",
-            data={
-                "incremental_interval": "2",
-                "full_interval": "48",
-                "flap_confirm_scrapes": "",
-            },
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-
-        after = client.get("/lists-view")
-        assert 'value="2"' in after.text
-        assert 'value="48"' in after.text
+        after = client.get("/api/v1/users").json()
+        alice2 = next(u for u in after if u["username"] == "alice")
+        wl2 = next(lst for lst in alice2["lists"] if lst["sourceType"] == "watchlist")
+        assert wl2["advanced"]["incrementalInterval"] == 2
+        assert wl2["advanced"]["fullInterval"] == 48

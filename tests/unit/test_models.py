@@ -71,9 +71,7 @@ async def test_custom_list_with_source(session: AsyncSession) -> None:
     user = User(letterboxd_username="bob")
     session.add(user)
     await session.flush()
-    parent = List(
-        user_id=user.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL"
-    )
+    parent = List(user_id=user.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL")
     session.add(parent)
     await session.flush()
 
@@ -88,8 +86,6 @@ async def test_custom_list_with_source(session: AsyncSession) -> None:
     )
     session.add(cl)
     await session.flush()
-    session.add(
-        CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE)
-    )
+    session.add(CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE))
     await session.commit()
     assert cl.id is not None

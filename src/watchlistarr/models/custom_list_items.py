@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 
 class CustomListItem(Base):
     __tablename__ = "custom_list_items"
-    __table_args__ = (
-        Index("ix_custom_list_items_served_since", "custom_list_id", "served_since"),
-    )
+    __table_args__ = (Index("ix_custom_list_items_served_since", "custom_list_id", "served_since"),)
 
     custom_list_id: Mapped[int] = mapped_column(
         ForeignKey("custom_lists.id", ondelete="CASCADE"), primary_key=True

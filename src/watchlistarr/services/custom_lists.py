@@ -63,9 +63,7 @@ async def _watched_by_users(session: AsyncSession, user_ids: list[int]) -> set[i
     if not user_ids:
         return set()
     rows = (
-        await session.execute(
-            select(WatchedFilm.tmdb_id).where(WatchedFilm.user_id.in_(user_ids))
-        )
+        await session.execute(select(WatchedFilm.tmdb_id).where(WatchedFilm.user_id.in_(user_ids)))
     ).all()
     return {row[0] for row in rows}
 
@@ -89,9 +87,7 @@ async def resolve_universe(session: AsyncSession, custom_list: CustomList) -> se
     excluded_users = await _excluded_user_ids(session, custom_list.id)
 
     by_list = await _items_by_list(session, list(set(include_ids + subtract_ids)))
-    includes = _combine_includes(
-        (by_list.get(lid, set()) for lid in include_ids), custom_list.op
-    )
+    includes = _combine_includes((by_list.get(lid, set()) for lid in include_ids), custom_list.op)
     subtracts: set[int] = set()
     for lid in subtract_ids:
         subtracts |= by_list.get(lid, set())
@@ -177,7 +173,9 @@ async def init_items(session: AsyncSession, custom_list: CustomList) -> int:
 async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
     """Tras editar filtros / sources / max_items: eliminar lo que ya no califica,
     rellenar hasta max_items con elementos del pool restante."""
-    candidates = set(await _apply_filters(session, custom_list, await resolve_universe(session, custom_list)))
+    candidates = set(
+        await _apply_filters(session, custom_list, await resolve_universe(session, custom_list))
+    )
     current = list(
         (
             await session.execute(
@@ -344,7 +342,5 @@ async def describe_sources(session: AsyncSession, custom_list: CustomList) -> st
             .scalars()
             .all()
         )
-        parts.append(
-            "excl. watched by " + ", ".join(u.letterboxd_username for u in excluded_users)
-        )
+        parts.append("excl. watched by " + ", ".join(u.letterboxd_username for u in excluded_users))
     return "; ".join(parts)

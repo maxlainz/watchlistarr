@@ -1,5 +1,0 @@
-{% for line in lines %}<span data-level="{{ line.level }}">{{ "%-5s"|format(line.level) }} {{ line.message }}</span>
-{% endfor %}<span
-  hx-get="/activity/tail?since={{ latest_seq }}{% if level %}&level={{ level }}{% endif %}"
-  hx-trigger="every 2s"
-  hx-swap="outerHTML"></span>

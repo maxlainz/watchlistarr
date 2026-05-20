@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Watchlistarr</title>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body style="font-family: Geist">
+<div id="root"></div>
+
+<script src="/static/vendor/react.min.js"></script>
+<script src="/static/vendor/react-dom.min.js"></script>
+<script src="/static/vendor/babel.min.js"></script>
+
+<script type="text/babel" src="/static/tweaks-panel.jsx"></script>
+<script type="text/babel" src="/static/src/icons.jsx"></script>
+<script type="text/babel" src="/static/src/ui.jsx"></script>
+<script type="text/babel" src="/static/src/data.jsx"></script>
+<script type="text/babel" src="/static/src/pages/Dashboard.jsx"></script>
+<script type="text/babel" src="/static/src/pages/Users.jsx"></script>
+<script type="text/babel" src="/static/src/pages/Lists.jsx"></script>
+<script type="text/babel" src="/static/src/pages/CustomLists.jsx"></script>
+<script type="text/babel" src="/static/src/pages/CustomListEditor.jsx"></script>
+<script type="text/babel" src="/static/src/pages/Activity.jsx"></script>
+<script type="text/babel" src="/static/src/app.jsx"></script>
+
+<script type="text/babel">
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<window.App />);
+</script>
+</body>
+</html>
