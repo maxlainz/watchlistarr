@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ user.letterboxd_username }} · watchlistarr{% endblock %}
+{% block content %}
+<h1>{{ user.letterboxd_username }}</h1>
+<p><a href="/users">← volver a users</a></p>
+
+<h2>Watchlist</h2>
+{% if watchlists %}
+  <table>
+    <thead><tr><th>Slug</th><th>Status</th><th>Sync</th></tr></thead>
+    <tbody>
+    {% for w in watchlists %}
+      <tr>
+        <td><code>/{{ user.letterboxd_username }}/{{ w.slug }}/</code></td>
+        <td>{{ w.last_sync_status.value }}</td>
+        <td>{{ w.last_synced_at or "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p><em>Sin watchlist registrada (raro tras arranque inicial).</em></p>
+{% endif %}
+
+<h2>Listas descubiertas</h2>
+{% if custom %}
+  <table>
+    <thead><tr><th>Slug</th><th>Nombre</th><th>Films</th><th>Habilitada</th><th></th></tr></thead>
+    <tbody>
+    {% for l in custom %}
+      <tr>
+        <td><code>{{ l.slug }}</code></td>
+        <td>{{ l.name }}</td>
+        <td>{{ l.film_count }}</td>
+        <td>{{ "sí" if l.enabled else "no" }}</td>
+        <td>
+          <form method="post" action="/users/{{ user.letterboxd_username }}/lists/{{ l.id }}/toggle">
+            <button type="submit">{{ "Desactivar" if l.enabled else "Activar" }}</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p><em>El discovery aún no ha encontrado listas (o el user no tiene listas públicas).</em></p>
+{% endif %}
+
+<h2>Sublistas</h2>
+<p><a href="/users/{{ user.letterboxd_username }}/sublists/new">+ Nueva sublista</a></p>
+{% endblock %}

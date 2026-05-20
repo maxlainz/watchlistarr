@@ -1,0 +1,12 @@
+services:
+  watchlistarr:
+    build: .
+    image: watchlistarr:dev
+    container_name: watchlistarr-dev
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env

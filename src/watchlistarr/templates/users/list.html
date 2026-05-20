@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Users · watchlistarr{% endblock %}
+{% block content %}
+<h1>Users</h1>
+
+<article>
+  <h3>Añadir user</h3>
+  <form method="post" action="/users">
+    <label>
+      Username de Letterboxd
+      <input name="username" required pattern="[A-Za-z0-9_-]+" placeholder="maxlainz">
+    </label>
+    <button type="submit">Añadir</button>
+  </form>
+  <small>
+    Al añadir, se valida con Letterboxd y se ejecuta el arranque inicial
+    (discovery + watchlist full + films-backstop). Esto puede tardar varios minutos.
+  </small>
+</article>
+
+<h2>Registrados</h2>
+{% if users %}
+  <table>
+    <thead><tr><th>Username</th><th>Display</th><th>Añadido</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td><a href="/users/{{ u.letterboxd_username }}">{{ u.letterboxd_username }}</a></td>
+          <td>{{ u.display_name or "—" }}</td>
+          <td>{{ u.added_at }}</td>
+          <td>
+            <form method="post" action="/users/{{ u.letterboxd_username }}/delete" style="display:inline">
+              <button type="submit" class="secondary" onclick="return confirm('Eliminar {{ u.letterboxd_username }}? Borrará todas sus listas, sublistas y vistos.')">Eliminar</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p><em>Ninguno aún.</em></p>
+{% endif %}
+{% endblock %}

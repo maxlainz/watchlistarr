@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Activity · watchlistarr{% endblock %}
+{% block content %}
+<h1>Actividad</h1>
+<form method="get" action="/activity">
+  <label>Source
+    <select name="source">
+      <option value="">(todos)</option>
+      {% for s in sources %}
+        <option value="{{ s }}" {% if filter_source == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Status
+    <select name="status">
+      <option value="">(todos)</option>
+      {% for s in statuses %}
+        <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filtrar</button>
+</form>
+
+{% if runs %}
+<table>
+  <thead><tr><th>Source</th><th>Status</th><th>Target</th><th>Inicio</th><th>Fin</th><th>Error</th></tr></thead>
+  <tbody>
+    {% for r in runs %}
+      <tr>
+        <td>{{ r.source.value }}</td>
+        <td>{{ r.status.value }}</td>
+        <td>{{ r.target_id or "—" }}</td>
+        <td>{{ r.started_at }}</td>
+        <td>{{ r.ended_at or "—" }}</td>
+        <td>{{ r.error or "" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p><em>Sin ejecuciones registradas con esos filtros.</em></p>
+{% endif %}
+{% endblock %}

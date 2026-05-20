@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}watchlistarr{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  <header>
+    <nav>
+      <ul>
+        <li><strong>watchlistarr</strong></li>
+      </ul>
+      <ul>
+        <li><a href="/">Dashboard</a></li>
+        <li><a href="/users">Users</a></li>
+        <li><a href="/combined">Combinadas</a></li>
+        <li><a href="/endpoints">Endpoints</a></li>
+        <li><a href="/activity">Activity</a></li>
+        <li><a href="/settings">Settings</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main>
+    {% if message %}<article>{{ message }}</article>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer><small>watchlistarr v{{ version }}</small></footer>
+</body>
+</html>

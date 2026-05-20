@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · watchlistarr{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+{% if not summary %}
+  <article>
+    <p>No hay users registrados.</p>
+    <p><a href="/users">Añadir el primero</a>.</p>
+  </article>
+{% endif %}
+{% for entry in summary %}
+  <article>
+    <header>
+      <strong>{{ entry.user.letterboxd_username }}</strong>
+      <a href="/users/{{ entry.user.letterboxd_username }}">detalle →</a>
+    </header>
+    {% if entry.lists %}
+      <table>
+        <thead><tr><th>Slug</th><th>Tipo</th><th>Items</th><th>Sync</th><th>Cuándo</th></tr></thead>
+        <tbody>
+        {% for l in entry.lists %}
+          <tr>
+            <td>{{ l.slug }}</td>
+            <td>{{ l.source_type }}</td>
+            <td>{{ l.items }}</td>
+            <td>{{ l.last_sync_status }}</td>
+            <td>{{ l.last_synced_at or "—" }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p><em>Sin listas habilitadas todavía.</em></p>
+    {% endif %}
+  </article>
+{% endfor %}
+
+<h2>Actividad reciente</h2>
+{% if runs %}
+  <table>
+    <thead><tr><th>Source</th><th>Status</th><th>Target</th><th>Inicio</th><th>Fin</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+        <tr>
+          <td>{{ r.source.value }}</td>
+          <td>{{ r.status.value }}</td>
+          <td>{{ r.target_id or "—" }}</td>
+          <td>{{ r.started_at }}</td>
+          <td>{{ r.ended_at or "—" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p><em>Sin ejecuciones aún.</em></p>
+{% endif %}
+{% endblock %}

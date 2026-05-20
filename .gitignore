@@ -12,3 +12,30 @@
 
 # Claude local settings (personal, no parte de los docs del proyecto)
 .claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# uv / venvs
+.venv/
+.python-version
+
+# Datos persistentes locales
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Build
+dist/
+build/
