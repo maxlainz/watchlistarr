@@ -8,7 +8,8 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 ## Reglas
 
 - Desarrollo siempre en rama `dev`; merge a `main` solo cuando se pida explícitamente.
-- Tras cada edición de código → commit en `dev` → `git push` inmediato.
+- Tras cada edición de código → commit en `dev` → `git push` inmediato → `docker compose -f docker-compose.dev.yml up -d --build` para refrescar la copia local de QC en `:8088`. Detalles: [`.claude/workflows.md` → Refresh local](.claude/workflows.md#refresh-local-tras-cada-commit).
+- **Antes de pushear, correr los 5 steps del CI localmente** (`ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`). Si tocas modelos, rutas HTTP o forma del JSON, **actualiza `scripts/smoke.py` en el mismo commit** — es la única red de seguridad end-to-end. Detalle por step: [`.claude/rules.md` → CI](.claude/rules.md#ci-github-actions-githubworkflowsciyml).
 - `CLAUDE.md` y `.claude/` **sí** viajan a `main` (no excluir en merge, a diferencia de otros proyectos personales).
 - Al mergear a `main`, el mensaje debe resumir todo lo nuevo desde el último commit en `main`.
 - Actualizar los docs de `.claude/` tras cualquier cambio mayor en arquitectura, comandos o reglas.
@@ -18,7 +19,7 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 
 | Archivo | Cuándo leer |
 |---|---|
-| [`.claude/rules.md`](.claude/rules.md) | Antes de cualquier edición — git, idioma, tipado, comentarios, estilo |
+| [`.claude/rules.md`](.claude/rules.md) | Antes de cualquier edición — git, CI, idioma, tipado, comentarios, estilo |
 | [`.claude/architecture.md`](.claude/architecture.md) | Stack, componentes (scraper, DB, API a Radarr, RSS watcher, UI), decisiones pendientes |
 | [`.claude/radarr-custom-list.md`](.claude/radarr-custom-list.md) | Antes de tocar la API que sirve a Radarr — formato JSON, pitfalls, headers |
 | [`.claude/letterboxd-rss.md`](.claude/letterboxd-rss.md) | Antes de tocar el RSS watcher — formato del feed, namespaces, tipos de item, edge cases |
