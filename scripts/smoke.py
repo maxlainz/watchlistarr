@@ -170,6 +170,11 @@ def _exercise(base_url: str) -> None:
         _assert(key in body, f"bootstrap missing {key}")
     usernames = {u["username"] for u in body["users"]}
     _assert(usernames == {"alice", "bob"}, f"users inesperados: {usernames}")
+    for u in body["users"]:
+        _assert("discoveryRunning" in u, f"user {u['username']} sin discoveryRunning")
+        _assert("syncingListIds" in u, f"user {u['username']} sin syncingListIds")
+        _assert(u["discoveryRunning"] is False, f"user {u['username']} discoveryRunning != False")
+        _assert(u["syncingListIds"] == [], f"user {u['username']} syncingListIds no vacío")
     _assert(
         any(cl["slug"] == "house" for cl in body["customLists"]),
         "house custom list no aparece",

@@ -38,7 +38,7 @@ from watchlistarr.services.custom_lists import (
 )
 from watchlistarr.services.letterboxd.client import LetterboxdClient
 from watchlistarr.services.log_buffer import get_buffer
-from watchlistarr.services.onboarding import schedule_initial_run
+from watchlistarr.services.onboarding import schedule_initial_run, schedule_list_sync
 from watchlistarr.services.scrape.initial_run import UserValidationError, validate_username
 
 logger = structlog.get_logger(__name__)
@@ -82,9 +82,41 @@ def _items_count(session: AsyncSession, list_id: int) -> Any:
     return session.execute(select(func.count(ListItem.list_id)).where(ListItem.list_id == list_id))
 
 
+async def _running_scrapes(session: AsyncSession) -> tuple[set[int], set[int]]:
+    """Snapshot of in-flight scrapes. Returns (discovery_user_ids, syncing_list_ids).
+
+    Powers the UI's spinner — `_serialize_user` consults this to mark a user as
+    `discoveryRunning` and to flag individual lists in `syncingListIds`."""
+    rows = (
+        await session.execute(
+            select(ScrapeRun.source, ScrapeRun.target_id).where(
+                ScrapeRun.status == ScrapeStatus.RUNNING
+            )
+        )
+    ).all()
+    discovery: set[int] = set()
+    list_runs: set[int] = set()
+    for source, target_id in rows:
+        if target_id is None:
+            continue
+        if source is ScrapeSource.DISCOVERY:
+            discovery.add(target_id)
+        elif source in (ScrapeSource.LIST, ScrapeSource.WATCHLIST):
+            list_runs.add(target_id)
+    return discovery, list_runs
+
+
 async def _serialize_user(
-    session: AsyncSession, user: User, *, include_lists: bool = True
+    session: AsyncSession,
+    user: User,
+    *,
+    include_lists: bool = True,
+    running: tuple[set[int], set[int]] | None = None,
 ) -> dict[str, Any]:
+    if running is None:
+        running = await _running_scrapes(session)
+    discovery_users, syncing_list_ids = running
+
     lists = list(
         (await session.execute(select(ListModel).where(ListModel.user_id == user.id)))
         .scalars()
@@ -141,6 +173,8 @@ async def _serialize_user(
         "enabledCount": enabled_count,
         "totalLists": len(lists),
         "lists": serialized_lists,
+        "discoveryRunning": user.id in discovery_users,
+        "syncingListIds": [lst.id for lst in lists if lst.id in syncing_list_ids],
     }
 
 
@@ -234,8 +268,9 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
 
 
 async def _all_users(session: AsyncSession) -> list[dict[str, Any]]:
+    running = await _running_scrapes(session)
     users = list((await session.execute(select(User).order_by(User.id))).scalars().all())
-    return [await _serialize_user(session, u) for u in users]
+    return [await _serialize_user(session, u, running=running) for u in users]
 
 
 async def _all_custom_lists(session: AsyncSession) -> list[dict[str, Any]]:
@@ -495,11 +530,29 @@ async def toggle_list(
     lst = await session.get(ListModel, list_id)
     if lst is None or lst.user_id != user.id:
         raise HTTPException(status_code=404)
-    lst.enabled = not lst.enabled
+    was_enabled = lst.enabled
+    lst.enabled = not was_enabled
     await session.commit()
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:
         await scheduler.sync_jobs()
+    # Off → On: kick an immediate full sync so the user does not wait for the
+    # next scheduler tick. Skip if an audit run is already in flight for this
+    # list (the onboarding background job, or a previous toggle).
+    if lst.enabled and not was_enabled:
+        in_flight = (
+            await session.execute(
+                select(ScrapeRun.id)
+                .where(
+                    ScrapeRun.target_id == lst.id,
+                    ScrapeRun.source.in_((ScrapeSource.LIST, ScrapeSource.WATCHLIST)),
+                    ScrapeRun.status == ScrapeStatus.RUNNING,
+                )
+                .limit(1)
+            )
+        ).first()
+        if in_flight is None:
+            schedule_list_sync(get_session_factory(), get_settings(), lst.id)
     return JSONResponse(await _serialize_user(session, user))
 
 

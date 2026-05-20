@@ -111,4 +111,13 @@ const Check = ({ checked, onChange, children, meta }) => (
   </label>
 );
 
-Object.assign(window, { Button, Switch, Badge, Card, CodeLine, Status, Toast, Sparkline, Check });
+const Spinner = ({ size = 16 }) => (
+  <span
+    className="spinner"
+    style={{ width: size, height: size, borderWidth: Math.max(2, Math.round(size / 8)) }}
+    role="status"
+    aria-label="Loading"
+  />
+);
+
+Object.assign(window, { Button, Switch, Badge, Card, CodeLine, Status, Toast, Sparkline, Check, Spinner });

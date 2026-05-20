@@ -17,6 +17,7 @@ const UsersPage = ({ navigate, users, refreshUsers, showToast }) => {
       await refreshUsers();
       setNewUsername('');
       showToast(`Validated @${created.username} on Letterboxd. Discovery running…`);
+      navigate('user-detail', created.id);
     } catch (err) {
       showToast(err.message || 'Could not add user');
     } finally {
@@ -127,9 +128,21 @@ window.UsersPage = UsersPage;
 const UserDetailPage = ({ navigate, users, refreshUsers, userId, showToast }) => {
   const user = users.find(u => u.id === userId);
   const { formatRelative } = window.MOCK;
-  if (!user) return <div className="page"><p>User not found.</p></div>;
 
   const [busy, setBusy] = React.useState(null);
+
+  // Poll the bootstrap while discovery or any list sync is in flight so the UI
+  // surfaces lists and clears spinners without manual refresh.
+  const isBusy = user && (user.discoveryRunning || (user.syncingListIds || []).length > 0);
+  React.useEffect(() => {
+    if (!isBusy) return;
+    const t = setInterval(() => { refreshUsers(); }, 3000);
+    return () => clearInterval(t);
+  }, [isBusy, refreshUsers]);
+
+  if (!user) return <div className="page"><p>User not found.</p></div>;
+
+  const syncingIds = new Set(user.syncingListIds || []);
 
   const toggleList = async (listId) => {
     setBusy(listId);
@@ -196,9 +209,15 @@ const UserDetailPage = ({ navigate, users, refreshUsers, userId, showToast }) =>
 
         {sortedLists.length === 0 ? (
           <div className="empty">
-            <div className="empty-icon"><Icon name="list" /></div>
-            <h3>Discovery in progress…</h3>
-            <div>Letterboxd discovery is running in the background. Refresh in a minute to see public lists.</div>
+            <div className="empty-icon">
+              {user.discoveryRunning ? <Spinner size={28} /> : <Icon name="list" />}
+            </div>
+            <h3>{user.discoveryRunning ? 'Discovering lists…' : 'No lists found'}</h3>
+            <div>
+              {user.discoveryRunning
+                ? 'Letterboxd discovery is running in the background. This page refreshes itself.'
+                : "We didn't find any public lists for this profile."}
+            </div>
           </div>
         ) : (
           <div>
@@ -220,7 +239,11 @@ const UserDetailPage = ({ navigate, users, refreshUsers, userId, showToast }) =>
                 <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                   {l.lastSyncedAt ? formatRelative(l.lastSyncedAt) : <span style={{ color: 'var(--text-faint)' }}>never</span>}
                 </div>
-                <div><Status status={l.status} /></div>
+                <div>
+                  {syncingIds.has(l.id)
+                    ? <span title="Syncing now…" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-dim)' }}><Spinner size={12} /> syncing</span>
+                    : <Status status={l.status} />}
+                </div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   <a href={`https://letterboxd.com/${user.username}/${l.sourceType === 'watchlist' ? 'watchlist' : 'list/' + l.slug}/`} target="_blank" rel="noreferrer">
                     <Button variant="ghost" size="sm" icon="arrowUpRight" iconOnly title="Open on Letterboxd" />
