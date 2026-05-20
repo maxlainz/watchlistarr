@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from watchlistarr.config import get_settings
-from watchlistarr.db import get_session
+from watchlistarr.config import Settings, get_settings
+from watchlistarr.db import get_session, get_session_factory
 from watchlistarr.models.enums import SourceType
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
@@ -23,6 +24,38 @@ from watchlistarr.services.scrape.initial_run import (
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/users")
+
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _initial_run_in_background(
+    factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    user_id: int,
+    scheduler: object | None,
+) -> None:
+    client = LetterboxdClient(settings)
+    try:
+        async with factory() as session:
+            user = await session.get(User, user_id)
+            if user is None:
+                logger.warning("initial_run.user_missing", user_id=user_id)
+                return
+            try:
+                await run_initial_for_user(session, client, user)
+                await session.commit()
+            except Exception as exc:
+                logger.exception("initial_run.failed", user_id=user_id, error=str(exc))
+                await session.rollback()
+                return
+    finally:
+        await client.aclose()
+
+    if scheduler is not None and hasattr(scheduler, "sync_jobs"):
+        try:
+            await scheduler.sync_jobs()
+        except Exception as exc:
+            logger.exception("scheduler.sync_failed", error=str(exc))
 
 
 @router.get("", response_class=HTMLResponse)
@@ -48,22 +81,27 @@ async def add_user(
             validated = await validate_username(client, username)
         except UserValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        existing = (
-            await session.execute(select(User).where(User.letterboxd_username == validated))
-        ).scalar_one_or_none()
-        if existing is not None:
-            return RedirectResponse(url=f"/users/{validated}", status_code=303)
-        user = User(letterboxd_username=validated)
-        session.add(user)
-        await session.flush()
-        await run_initial_for_user(session, client, user)
-        await session.commit()
     finally:
         await client.aclose()
 
+    existing = (
+        await session.execute(select(User).where(User.letterboxd_username == validated))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return RedirectResponse(url=f"/users/{validated}", status_code=303)
+
+    user = User(letterboxd_username=validated)
+    session.add(user)
+    await session.flush()
+    await session.commit()
+
     scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler is not None:
-        await scheduler.sync_jobs()
+    task = asyncio.create_task(
+        _initial_run_in_background(get_session_factory(), settings, user.id, scheduler)
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    logger.info("user.added", username=validated, user_id=user.id)
     return RedirectResponse(url=f"/users/{validated}", status_code=303)
 
 

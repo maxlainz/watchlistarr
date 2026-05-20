@@ -4,6 +4,14 @@
 <h1>{{ user.letterboxd_username }}</h1>
 <p><a href="/users">← volver a users</a></p>
 
+{% if not watchlists and not custom %}
+<article>
+  <p><strong>Arranque inicial en progreso…</strong></p>
+  <p>Se está descubriendo las listas, sincronizando la watchlist completa y poblando los vistos recientes. Puede tardar varios minutos (la primera vez se resuelve un TMDB ID por cada peli, con rate-limit de 2&nbsp;s).</p>
+  <p>Refresca esta página dentro de un rato. Sigue el progreso en <a href="/activity">/activity</a>.</p>
+</article>
+{% endif %}
+
 <h2>Watchlist</h2>
 {% if watchlists %}
   <table>

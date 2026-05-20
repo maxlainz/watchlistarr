@@ -50,6 +50,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("watchlistarr.startup", version=__version__)
 
     await asyncio.to_thread(_alembic_upgrade_sync)
+    # alembic.fileConfig reasignó los handlers del root logger; restablecemos
+    # nuestra config para que los logs INFO posteriores sigan saliendo a stdout.
+    setup_logging(level=settings.log_level, fmt=settings.log_format)
     init_engine(settings.database_url)
     async with session_scope() as session:
         await seed_defaults(session, settings)

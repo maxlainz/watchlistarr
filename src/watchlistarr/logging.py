@@ -9,7 +9,10 @@ from structlog.types import Processor
 
 def setup_logging(level: str = "info", fmt: str = "plain") -> None:
     log_level = getattr(logging, level.upper(), logging.INFO)
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level)
+    # force=True para sobrescribir handlers que alembic.fileConfig pudo dejar
+    # (que apuntan a stderr con level WARN y filtrarían nuestros INFO de structlog).
+    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level, force=True)
+    logging.getLogger().setLevel(log_level)
 
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
