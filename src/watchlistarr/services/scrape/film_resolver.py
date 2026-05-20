@@ -18,6 +18,7 @@ async def resolve_film(session: AsyncSession, client: LetterboxdClient, slug: st
     if existing is not None:
         return existing
 
+    logger.info("film.resolve", slug=slug)
     response = await client.get(f"/film/{slug}/")
     data = parse_film_page(response.text, slug=slug)
     if data.tmdb_type != "movie" or data.tmdb_id is None:

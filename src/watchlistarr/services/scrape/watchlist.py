@@ -73,19 +73,33 @@ async def sync_watchlist_full(
     if user is None:
         return
 
+    logger.info("watchlist.full_sync.start", user_id=watchlist.user_id)
     all_slugs: list[str] = []
     page = 1
     total_pages = 1
     while True:
         response = await client.get(_path(user.letterboxd_username, page))
         html = response.text
-        all_slugs.extend(item.slug for item in parse_list_items(html))
+        page_slugs = [item.slug for item in parse_list_items(html)]
+        all_slugs.extend(page_slugs)
         if page == 1:
             total_pages = parse_total_pages(html)
+        logger.info(
+            "watchlist.full_sync.page",
+            user_id=watchlist.user_id,
+            page=page,
+            total_pages=total_pages,
+            page_items=len(page_slugs),
+        )
         if page >= total_pages:
             break
         page += 1
 
+    logger.info(
+        "watchlist.full_sync.resolving",
+        user_id=watchlist.user_id,
+        total_slugs=len(all_slugs),
+    )
     films_by_slug = await _resolve_slugs(session, client, all_slugs)
     await _upsert_items(session, watchlist.id, all_slugs, films_by_slug)
 

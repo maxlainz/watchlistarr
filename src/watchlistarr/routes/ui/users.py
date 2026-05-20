@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 import structlog
@@ -11,21 +12,40 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from watchlistarr.config import Settings, get_settings
 from watchlistarr.db import get_session, get_session_factory
-from watchlistarr.models.enums import SourceType
+from watchlistarr.models.enums import ScrapeSource, SourceType
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
 from watchlistarr.routes.ui import templates
 from watchlistarr.services.letterboxd.client import LetterboxdClient
+from watchlistarr.services.scrape.audit import with_scrape_audit
+from watchlistarr.services.scrape.discovery import discover_lists
+from watchlistarr.services.scrape.films_backstop import backstop_films_for_user
 from watchlistarr.services.scrape.initial_run import (
     UserValidationError,
-    run_initial_for_user,
+    ensure_watchlist_row,
     validate_username,
 )
+from watchlistarr.services.scrape.watchlist import sync_watchlist_full
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/users")
 
 _background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _run_step(
+    factory: async_sessionmaker[AsyncSession],
+    source: ScrapeSource,
+    target_id: int | None,
+    body: Callable[[AsyncSession], Awaitable[None]],
+) -> bool:
+    """Ejecuta `body` en su propia sesión + commit, registra ScrapeRun. Devuelve True si OK."""
+    try:
+        await with_scrape_audit(factory, source, target_id, body)
+        return True
+    except Exception as exc:
+        logger.exception("initial_run.step_failed", source=source.value, error=str(exc))
+        return False
 
 
 async def _initial_run_in_background(
@@ -35,21 +55,50 @@ async def _initial_run_in_background(
     scheduler: object | None,
 ) -> None:
     client = LetterboxdClient(settings)
+    logger.info("initial_run.background.start", user_id=user_id)
     try:
-        async with factory() as session:
+
+        async def _ensure_wl(session: AsyncSession) -> None:
             user = await session.get(User, user_id)
             if user is None:
-                logger.warning("initial_run.user_missing", user_id=user_id)
                 return
-            try:
-                await run_initial_for_user(session, client, user)
-                await session.commit()
-            except Exception as exc:
-                logger.exception("initial_run.failed", user_id=user_id, error=str(exc))
-                await session.rollback()
+            await ensure_watchlist_row(session, user)
+
+        async def _discover(session: AsyncSession) -> None:
+            user = await session.get(User, user_id)
+            if user is None:
                 return
+            await discover_lists(session, client, user)
+
+        async def _watchlist(session: AsyncSession) -> None:
+            user = await session.get(User, user_id)
+            if user is None:
+                return
+            watchlist = (
+                await session.execute(
+                    select(ListModel).where(
+                        ListModel.user_id == user.id,
+                        ListModel.source_type == SourceType.WATCHLIST,
+                    )
+                )
+            ).scalar_one_or_none()
+            if watchlist is None:
+                return
+            await sync_watchlist_full(session, client, watchlist)
+
+        async def _backstop(session: AsyncSession) -> None:
+            user = await session.get(User, user_id)
+            if user is None:
+                return
+            await backstop_films_for_user(session, client, user)
+
+        await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _ensure_wl)
+        await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _discover)
+        await _run_step(factory, ScrapeSource.WATCHLIST, user_id, _watchlist)
+        await _run_step(factory, ScrapeSource.FILMS, user_id, _backstop)
     finally:
         await client.aclose()
+    logger.info("initial_run.background.done", user_id=user_id)
 
     if scheduler is not None and hasattr(scheduler, "sync_jobs"):
         try:
