@@ -47,4 +47,4 @@ Reglas, arquitectura y specs de scraping/RSS/data-model viven en [`.claude/`](.c
 
 ## CI / publicación
 
-GitHub Actions: lint + mypy + pytest + smoke en cada push. En `main` y tags `vX.Y.Z`, build multi-arquitectura (amd64+arm64) y push a DockerHub. Requiere secrets `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN`.
+GitHub Actions: lint + mypy + pytest + smoke en cada push y PR. Solo en push a `main` se construye la imagen multi-arquitectura (amd64+arm64) y se publica `maxlainz/watchlistarr:latest` + `maxlainz/watchlistarr:sha-<short>` en DockerHub. Requiere secrets `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` configurados en el repo.
