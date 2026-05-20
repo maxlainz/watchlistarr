@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if custom_list else "New" }} custom list · watchlistarr{% endblock %}
+{% block content %}
+<h1>{{ "Edit custom list: " ~ custom_list.name if custom_list else "New custom list" }}</h1>
+<p><a href="/custom-lists">← back to custom lists</a></p>
+
+<form
+  method="post"
+  action="{{ ('/custom-lists/' ~ custom_list.slug ~ '/edit') if custom_list else '/custom-lists/new' }}"
+>
+  <fieldset>
+    <legend>Basics</legend>
+    <label>Name
+      <input name="name" required value="{{ custom_list.name if custom_list else '' }}" placeholder="My weekend picks">
+    </label>
+    {% if not custom_list %}
+    <label>Slug (URL segment)
+      <input name="slug" required pattern="[a-z0-9][a-z0-9-]*" placeholder="weekend-picks">
+      <small>Used in the Radarr URL: <code>/lists/&lt;slug&gt;/</code></small>
+    </label>
+    {% else %}
+    <label>Slug
+      <input value="{{ custom_list.slug }}" readonly disabled>
+      <small>Slugs can't be changed after creation.</small>
+    </label>
+    {% endif %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Sources to include</legend>
+    <small>Films from any of these lists will be considered.</small>
+    {% for group in groups %}
+      <details {% if include_ids and (group.lists|selectattr("id", "in", include_ids)|list) %}open{% endif %}>
+        <summary><strong>{{ group.user.letterboxd_username }}</strong></summary>
+        {% for lst in group.lists %}
+          <label>
+            <input type="checkbox" name="include_ids" value="{{ lst.id }}"
+              {% if lst.id in include_ids %}checked{% endif %}>
+            {{ lst.label }} <small><code>{{ lst.slug }}</code></small>
+          </label>
+        {% endfor %}
+      </details>
+    {% endfor %}
+
+    <label>Combine sources with
+      <select name="op">
+        {% for o in ops %}
+          <option value="{{ o }}" {% if custom_list and custom_list.op.value == o %}selected{% elif not custom_list and o == "union" %}selected{% endif %}>
+            {{ "Union (any of them)" if o == "union" else "Intersection (all of them)" }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Sources to subtract <small>(optional)</small></legend>
+    <small>Any film present in these lists will be removed from the result.</small>
+    {% for group in groups %}
+      <details {% if subtract_ids and (group.lists|selectattr("id", "in", subtract_ids)|list) %}open{% endif %}>
+        <summary><strong>{{ group.user.letterboxd_username }}</strong></summary>
+        {% for lst in group.lists %}
+          <label>
+            <input type="checkbox" name="subtract_ids" value="{{ lst.id }}"
+              {% if lst.id in subtract_ids %}checked{% endif %}>
+            {{ lst.label }} <small><code>{{ lst.slug }}</code></small>
+          </label>
+        {% endfor %}
+      </details>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Exclude films already watched by <small>(optional)</small></legend>
+    {% for u in all_users %}
+      <label>
+        <input type="checkbox" name="excluded_user_ids" value="{{ u.id }}"
+          {% if u.id in excluded_user_ids %}checked{% endif %}>
+        {{ u.letterboxd_username }}
+      </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Preview</legend>
+    <small id="pool-preview">Pool: hit "Refresh preview" to count eligible films.</small>
+    <br>
+    <button type="button"
+            hx-post="/custom-lists/preview"
+            hx-include="closest form"
+            hx-target="#pool-preview"
+            hx-swap="outerHTML">
+      Refresh preview
+    </button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Serving</legend>
+    <label>Max items (leave empty for unlimited)
+      <input name="max_items" type="number" min="1" value="{{ custom_list.max_items or '' if custom_list else '' }}">
+    </label>
+    <label>Order
+      <select name="sort_order">
+        {% for s in sort_orders %}
+          <option value="{{ s }}" {% if custom_list and custom_list.sort_order.value == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Static filters <small>(optional)</small></legend>
+    <label>Min rating
+      <input name="min_rating" type="number" step="0.5" min="0.5" max="5" value="{{ custom_list.min_rating or '' if custom_list else '' }}">
+    </label>
+    <label>Max rating
+      <input name="max_rating" type="number" step="0.5" min="0.5" max="5" value="{{ custom_list.max_rating or '' if custom_list else '' }}">
+    </label>
+    <label>Min year
+      <input name="min_year" type="number" min="1880" max="2100" value="{{ custom_list.min_year or '' if custom_list else '' }}">
+    </label>
+    <label>Max year
+      <input name="max_year" type="number" min="1880" max="2100" value="{{ custom_list.max_year or '' if custom_list else '' }}">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Time rotation</legend>
+    <small>Periodically swap a few served films for new ones from the eligible pool. Useful with Max items + a static-ish source.</small>
+    <label>
+      <input type="checkbox" name="rotation_enabled" {% if custom_list and custom_list.rotation_enabled %}checked{% endif %}>
+      Enable rotation
+    </label>
+    <label>Batch size (films swapped each rotation)
+      <input name="rotation_batch_size" type="number" min="1" value="{{ custom_list.rotation_batch_size if custom_list else 1 }}">
+    </label>
+  </fieldset>
+
+  <button type="submit">{{ "Save changes" if custom_list else "Create" }}</button>
+</form>
+{% endblock %}

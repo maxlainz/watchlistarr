@@ -2,56 +2,45 @@
 {% block title %}Dashboard · watchlistarr{% endblock %}
 {% block content %}
 <h1>Dashboard</h1>
-{% if not summary %}
-  <article>
-    <p>No hay users registrados.</p>
-    <p><a href="/users">Añadir el primero</a>.</p>
+
+{% if recent_errors and recent_errors > 0 %}
+  <article style="border-left: 4px solid var(--pico-color-red-500);">
+    <strong>{{ recent_errors }} scrape error(s) in the last hour.</strong>
+    Check <a href="/activity">Activity</a> for details.
   </article>
 {% endif %}
-{% for entry in summary %}
-  <article>
-    <header>
-      <strong>{{ entry.user.letterboxd_username }}</strong>
-      <a href="/users/{{ entry.user.letterboxd_username }}">detalle →</a>
-    </header>
-    {% if entry.lists %}
-      <table>
-        <thead><tr><th>Slug</th><th>Tipo</th><th>Items</th><th>Sync</th><th>Cuándo</th></tr></thead>
-        <tbody>
-        {% for l in entry.lists %}
-          <tr>
-            <td>{{ l.slug }}</td>
-            <td>{{ l.source_type }}</td>
-            <td>{{ l.items }}</td>
-            <td>{{ l.last_sync_status }}</td>
-            <td>{{ l.last_synced_at or "—" }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p><em>Sin listas habilitadas todavía.</em></p>
-    {% endif %}
-  </article>
-{% endfor %}
 
-<h2>Actividad reciente</h2>
-{% if runs %}
-  <table>
-    <thead><tr><th>Source</th><th>Status</th><th>Target</th><th>Inicio</th><th>Fin</th></tr></thead>
-    <tbody>
-      {% for r in runs %}
-        <tr>
-          <td>{{ r.source.value }}</td>
-          <td>{{ r.status.value }}</td>
-          <td>{{ r.target_id or "—" }}</td>
-          <td>{{ r.started_at }}</td>
-          <td>{{ r.ended_at or "—" }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-{% else %}
-  <p><em>Sin ejecuciones aún.</em></p>
+<section class="grid">
+  <article>
+    <header><small>Users</small></header>
+    <h2>{{ users_count }}</h2>
+    <a href="/users">Manage users →</a>
+  </article>
+  <article>
+    <header><small>Lists monitored</small></header>
+    <h2>{{ lists_count }}</h2>
+    <a href="/lists-view">View lists →</a>
+  </article>
+  <article>
+    <header><small>Custom lists</small></header>
+    <h2>{{ custom_count }}</h2>
+    <a href="/custom-lists">Manage custom lists →</a>
+  </article>
+</section>
+
+<article>
+  <header><small>Last successful scrape</small></header>
+  {% if last_success %}
+    <p><time>{{ last_success }}</time></p>
+  {% else %}
+    <p><em>No scrapes recorded yet.</em></p>
+  {% endif %}
+</article>
+
+{% if users_count == 0 %}
+  <article>
+    <p>No users registered yet.</p>
+    <p><a href="/users">Add the first one →</a></p>
+  </article>
 {% endif %}
 {% endblock %}

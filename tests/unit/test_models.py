@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from watchlistarr.models import (
-    CombinedKind,
+    CombinationOp,
+    CustomList,
+    CustomListSource,
     Film,
     List,
     ListItem,
     SortOrder,
+    SourceRole,
     SourceType,
-    Sublist,
     SyncStatus,
     User,
 )
@@ -23,12 +23,14 @@ async def test_all_tables_created(engine: AsyncEngine) -> None:
         tables = await conn.run_sync(lambda c: sorted(inspect(c).get_table_names()))
     expected = {
         "alembic_version",
+        "custom_list_excluded_watchers",
+        "custom_list_items",
+        "custom_list_sources",
+        "custom_lists",
         "films",
         "list_items",
         "lists",
         "scrape_runs",
-        "sublist_items",
-        "sublists",
         "users",
         "viewing_logs",
         "watched_films",
@@ -65,41 +67,29 @@ async def test_user_list_film_crud(session: AsyncSession) -> None:
     assert watchlist.last_sync_status is SyncStatus.NEVER
 
 
-async def test_sublist_check_constraint_user_only(session: AsyncSession) -> None:
+async def test_custom_list_with_source(session: AsyncSession) -> None:
     user = User(letterboxd_username="bob")
     session.add(user)
     await session.flush()
-    parent = List(user_id=user.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL")
+    parent = List(
+        user_id=user.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL"
+    )
     session.add(parent)
     await session.flush()
 
-    sub = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
+    cl = CustomList(
         slug="top",
-        name="Top",
+        name="Top picks",
+        op=CombinationOp.UNION,
         sort_order=SortOrder.LETTERBOXD,
+        rotation_enabled=False,
+        rotation_batch_size=1,
+        enabled=True,
     )
-    session.add(sub)
+    session.add(cl)
+    await session.flush()
+    session.add(
+        CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE)
+    )
     await session.commit()
-    assert sub.id is not None
-
-
-async def test_sublist_check_constraint_rejects_both_parents(session: AsyncSession) -> None:
-    user = User(letterboxd_username="carol")
-    session.add(user)
-    await session.flush()
-    parent = List(user_id=user.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL")
-    session.add(parent)
-    await session.flush()
-
-    invalid = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
-        parent_combined_kind=CombinedKind.UNION,
-        slug="mixed",
-        name="Mixed",
-    )
-    session.add(invalid)
-    with pytest.raises(IntegrityError):
-        await session.commit()
+    assert cl.id is not None

@@ -8,10 +8,14 @@ class SourceType(StrEnum):
     WATCHLIST = "watchlist"
 
 
-class CombinedKind(StrEnum):
+class CombinationOp(StrEnum):
     UNION = "union"
     INTERSECTION = "intersection"
-    UNION_UNWATCHED = "union-unwatched"
+
+
+class SourceRole(StrEnum):
+    INCLUDE = "include"
+    SUBTRACT = "subtract"
 
 
 class ScrapeSource(StrEnum):

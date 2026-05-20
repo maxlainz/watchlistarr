@@ -6,11 +6,10 @@ import json
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from watchlistarr.models.custom_list_items import CustomListItem
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
-from watchlistarr.models.sublist_items import SublistItem
 from watchlistarr.schemas.radarr import RadarrItem
-from watchlistarr.services.combined import films_by_tmdb_ids
 
 
 async def serialize_list(session: AsyncSession, list_id: int) -> list[RadarrItem]:
@@ -25,25 +24,18 @@ async def serialize_list(session: AsyncSession, list_id: int) -> list[RadarrItem
     return [RadarrItem(tmdb_id=tmdb_id, title=title) for tmdb_id, title in rows]
 
 
-async def serialize_sublist(session: AsyncSession, sublist_id: int) -> list[RadarrItem]:
+async def serialize_custom_list(
+    session: AsyncSession, custom_list_id: int
+) -> list[RadarrItem]:
     rows = (
         await session.execute(
-            select(SublistItem.tmdb_id, Film.title)
-            .join(Film, SublistItem.tmdb_id == Film.tmdb_id)
-            .where(SublistItem.sublist_id == sublist_id)
-            .order_by(SublistItem.position, SublistItem.tmdb_id)
+            select(CustomListItem.tmdb_id, Film.title)
+            .join(Film, CustomListItem.tmdb_id == Film.tmdb_id)
+            .where(CustomListItem.custom_list_id == custom_list_id)
+            .order_by(CustomListItem.position, CustomListItem.tmdb_id)
         )
     ).all()
     return [RadarrItem(tmdb_id=tmdb_id, title=title) for tmdb_id, title in rows]
-
-
-async def serialize_combined(session: AsyncSession, tmdb_ids: list[int]) -> list[RadarrItem]:
-    films = await films_by_tmdb_ids(session, tmdb_ids)
-    items: list[RadarrItem] = []
-    for tmdb_id in tmdb_ids:
-        film = films.get(tmdb_id)
-        items.append(RadarrItem(tmdb_id=tmdb_id, title=film.title if film else None))
-    return items
 
 
 def render_payload(items: list[RadarrItem]) -> bytes:

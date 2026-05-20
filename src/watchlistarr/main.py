@@ -25,12 +25,12 @@ from watchlistarr.logging import setup_logging
 from watchlistarr.routes.api.admin import router as admin_router
 from watchlistarr.routes.api.radarr import router as radarr_router
 from watchlistarr.routes.ui.activity import router as ui_activity_router
-from watchlistarr.routes.ui.combined import router as ui_combined_router
+from watchlistarr.routes.ui.custom_lists import router as ui_custom_lists_router
 from watchlistarr.routes.ui.dashboard import router as ui_dashboard_router
-from watchlistarr.routes.ui.endpoints import router as ui_endpoints_router
-from watchlistarr.routes.ui.sublists import router as ui_sublists_router
+from watchlistarr.routes.ui.lists import router as ui_lists_router
 from watchlistarr.routes.ui.users import router as ui_users_router
 from watchlistarr.scheduler import JobScheduler
+from watchlistarr.services.log_buffer import install_buffer_handler
 
 logger = structlog.get_logger(__name__)
 
@@ -46,12 +46,14 @@ def _alembic_upgrade_sync() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(level=settings.log_level, fmt=settings.log_format)
+    install_buffer_handler()
     logger.info("watchlistarr.startup", version=__version__)
 
     await asyncio.to_thread(_alembic_upgrade_sync)
     # alembic.fileConfig reasignó los handlers del root logger; restablecemos
     # nuestra config para que los logs INFO posteriores sigan saliendo a stdout.
     setup_logging(level=settings.log_level, fmt=settings.log_format)
+    install_buffer_handler()
     init_engine(settings.database_url)
 
     scheduler = JobScheduler(get_session_factory(), settings)
@@ -96,10 +98,9 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(ui_dashboard_router)
     app.include_router(ui_users_router)
-    app.include_router(ui_sublists_router)
-    app.include_router(ui_combined_router)
+    app.include_router(ui_lists_router)
+    app.include_router(ui_custom_lists_router)
     app.include_router(ui_activity_router)
-    app.include_router(ui_endpoints_router)
     app.include_router(radarr_router)
     return app
 

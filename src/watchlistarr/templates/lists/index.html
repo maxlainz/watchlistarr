@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Lists · watchlistarr{% endblock %}
+{% block content %}
+<h1>Lists</h1>
+<p><small>All enabled lists imported from Letterboxd. To enable or disable a list, go to <a href="/users">Users</a>.</small></p>
+
+{% if not groups %}
+  <p><em>No lists yet. Add a user and enable some of their lists first.</em></p>
+{% endif %}
+
+{% for group in groups %}
+  <article>
+    <header><strong>{{ group.user.letterboxd_username }}</strong></header>
+    {% if group.rows %}
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Films</th>
+            <th>Last sync</th>
+            <th>Status</th>
+            <th>Radarr URL</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in group.rows %}
+            <tr>
+              <td>
+                {{ "Watchlist" if row.is_watchlist else row.list.name }}
+              </td>
+              <td>{{ row.items }}</td>
+              <td>{{ row.list.last_synced_at or "—" }}</td>
+              <td>{{ row.list.last_sync_status.value }}</td>
+              <td><code id="url-{{ row.list.id }}">{{ row.url }}</code></td>
+              <td>
+                <button type="button" onclick="navigator.clipboard.writeText(window.location.origin + document.getElementById('url-{{ row.list.id }}').textContent)">Copy</button>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="6">
+                <details>
+                  <summary>⚙ Advanced</summary>
+                  <form method="post" action="/lists-view/{{ group.user.letterboxd_username }}/{{ row.list.slug }}/settings">
+                    {% for key, pair in row.advanced.items() %}
+                      {% set override, default = pair %}
+                      <label>{{ key }}
+                        <input
+                          name="{{ key }}"
+                          type="number"
+                          min="1"
+                          value="{{ override if override is not none else '' }}"
+                          placeholder="{{ default }} (default)"
+                        >
+                      </label>
+                    {% endfor %}
+                    <button type="submit">Save</button>
+                  </form>
+                </details>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p><em>No enabled lists for this user.</em></p>
+    {% endif %}
+  </article>
+{% endfor %}
+{% endblock %}

@@ -10,7 +10,6 @@ from watchlistarr.models.base import Base, utcnow
 
 if TYPE_CHECKING:
     from watchlistarr.models.lists import List
-    from watchlistarr.models.sublists import Sublist
 
 
 class User(Base):
@@ -30,6 +29,3 @@ class User(Base):
     discovery_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
 
     lists: Mapped[list[List]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    sublists: Mapped[list[Sublist]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )

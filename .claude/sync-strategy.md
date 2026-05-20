@@ -15,7 +15,7 @@ Principio rector: **la DB es autoritativa**. Lo que servimos a Radarr nunca se c
 | Lista custom scrape completo | full | `LISTS_FULL_INTERVAL` | 7 d | Eliminaciones + reordenamientos + verificación |
 | `/{user}/films/` página 1 (backstop) | hot | `FILMS_BACKSTOP_INTERVAL` | 24 h | `watched_films` (rellena gaps del RSS, sin fecha) |
 | `/{user}/lists/` (discovery) | discovery | `DISCOVERY_INTERVAL` | 7 d | `lists` (descubre listas nuevas o desaparecidas) |
-| Rotation tick (interno, sin red) | scheduled | `ROTATION_TICK_INTERVAL` | 1 h | `sublist_items` de sublistas cuyo `last_rotated_at + rotation_interval ≤ now` |
+| Rotation tick (interno, sin red) | scheduled | `ROTATION_TICK_INTERVAL` | 1 h | `custom_list_items` de custom lists cuyo `last_rotated_at + rotation_interval ≤ now` |
 
 **Principio**: RSS-driven en caliente, scrapes incrementales frecuentes para detectar adiciones, scrapes completos espaciados para confirmar todo lo demás.
 
@@ -23,7 +23,7 @@ Detalles de selectores y URLs para cada scrape: [`letterboxd-lists.md`](letterbo
 
 ## DB autoritativa, scrape transaccional
 
-- El JSON que servimos a Radarr en `/<user>/<slug>/`, `/<user>/watchlist/` y `/all/watchlist/<combo>/` es **siempre un SELECT de la DB**.
+- El JSON que servimos a Radarr en `/<user>/<slug>/`, `/<user>/watchlist/` y `/lists/<slug>/` (custom lists) es **siempre un SELECT de la DB**.
 - Un scrape completo **solo aplica cambios** si recorre todas sus páginas sin error. Si falla a mitad, se aborta, no se persisten cambios parciales, `scrape_runs.status='error'` y `lists.last_sync_status='error'`.
 - Un scrape incremental nunca elimina; solo añade. Las eliminaciones solo provienen de scrapes completos (y pasan por la verificación anti-flap).
 
@@ -85,38 +85,37 @@ Cubre el gap conocido del RSS (ventana limitada a ~20-50 items).
 
 ## Rotation worker
 
-Independiente del scraping — no toca la red. Recorre todas las sublistas con `rotation_enabled = true` cada `ROTATION_TICK_INTERVAL` (default 1 h).
+Independiente del scraping — no toca la red. Recorre todas las custom lists con `rotation_enabled = true` cada `ROTATION_TICK_INTERVAL` (default 1 h).
 
-Por cada sublista:
+Por cada custom list:
 
 1. Si `last_rotated_at + rotation_interval > now` → skip.
-2. Calcular **pool elegible** = items del parent (o de la combinada) que cumplen los filtros (`min_rating`, `max_year`, `added_after`, etc.) **y** no están actualmente en `sublist_items`.
+2. Calcular **pool elegible** = resolución multi-source (union/intersection de los `include`-sources, menos `subtract`-sources, menos `watched_films` de los `excluded_watchers`) filtrada por `min_rating`, `max_year`, `added_after`, etc., **menos** las que ya están en `custom_list_items`.
 3. Si `len(pool) >= rotation_batch_size`:
-   - Sacar las `rotation_batch_size` filas de `sublist_items` con `served_since` más antiguo (FIFO temporal).
+   - Sacar las `rotation_batch_size` filas de `custom_list_items` con `served_since` más antiguo (FIFO temporal).
    - Insertar `rotation_batch_size` filas aleatorias del pool con `served_since = now()`.
 4. Si `len(pool) < rotation_batch_size`:
    - Insertar las que haya. Sacar la misma cantidad de las más antiguas para mantener `max_items` aproximado. Si el pool está vacío, **no sacar nada** (mejor servir menos que servir vacío).
 5. Update `last_rotated_at = now()`.
 
-**Inicialización al crear**: cuando se crea una sublista con `rotation_enabled`, popular `sublist_items` con `max_items` aleatorias del pool elegible y `served_since = now()`. Si la sublista tiene `rotation_enabled = false` pero sí `max_items`, hacer lo mismo (selección random inicial) y dejarla congelada hasta que se edite.
+**Inicialización al crear**: cuando se crea una custom list, popular `custom_list_items` con `max_items` aleatorias del pool elegible y `served_since = now()`.
 
-**Recálculo al editar filtros o `max_items`**: síncrono al guardar en la UI:
-- Eliminar de `sublist_items` las que ya no cumplen filtros.
+**Recálculo al editar sources, exclusiones, filtros o `max_items`**: síncrono al guardar en la UI:
+- Eliminar de `custom_list_items` las que ya no cumplen filtros o quedan fuera del nuevo universo.
 - Si quedan menos de `max_items`, rellenar desde el pool actual.
 
-**Ortogonalidad con `watched_films`**: el RSS marca pelis como vistas; las sublistas cuyo parent es `union-unwatched` o cuyos filtros excluyen vistas las pierden en la **siguiente rotación**, no al instante. Si en uso real necesitamos retirada inmediata, se añade después como flag por sublista (decisión TBD).
+**Ortogonalidad con `watched_films`**: el RSS marca pelis como vistas; las custom lists con `excluded_watchers` no eliminan a la velocidad del RSS — pierden los items en la **siguiente rotación** (o en el siguiente recálculo).
 
 ## Modo "arranque inicial" (cuando se añade un user)
 
-Al añadir un user nuevo en la UI, ejecutar una secuencia única:
+Al añadir un user nuevo en la UI:
 
 1. **Validar**: `GET /{user}/` → debe devolver 200 con `x-letterboxd-type: Member`.
-2. **Discovery**: `/{user}/lists/`.
-3. **Watchlist full sync**: scrape completo, poblar `list_items` desde cero.
-4. **Films-backstop full**: `/films/` página 1, poblar `watched_films` con lo reciente.
-5. **Listas habilitadas**: el user elige cuáles activar en la UI tras ver el discovery. Cada una habilitada lanza un full sync.
+2. **Discovery**: `/{user}/lists/` — descubre listas públicas y crea la fila de la watchlist. **Todas se crean `enabled=False`**. La watchlist deja de ser especial: es una lista descubierta más.
+3. **Films-backstop**: `/{user}/films/` página 1 — pobla `watched_films` con lo reciente (no requiere lista enabled, es soporte transversal para anti-flap y custom lists con `excluded_watchers`).
+4. El usuario elige en la UI qué listas activar (toggle por lista, watchlist incluida). Al activar una, se lanza un full sync de esa lista.
 
-Luego el user entra al régimen periódico configurado.
+No se scrapea la watchlist automáticamente al añadir un user.
 
 ## Configuración
 
@@ -124,9 +123,9 @@ Defaults globales: env vars (ver [`workflows.md`](workflows.md)). Son inmutables
 
 Overrides por entidad (NULL = heredar default de env):
 
-- `users.rss_interval`, `users.watchlist_incremental_interval`, `users.watchlist_full_interval`, `users.films_backstop_interval`, `users.discovery_interval` — editables en `/users/<user>/intervals`.
-- `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en `/users/<user>/lists/<slug>/settings`.
-- `sublists.rotation_interval` — editable desde el editor de sublista (ya existente).
+- `users.rss_interval`, `users.watchlist_incremental_interval`, `users.watchlist_full_interval`, `users.films_backstop_interval`, `users.discovery_interval` — editables en el colapsable "Advanced" del detalle de user (`/users/<user>`).
+- `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en el colapsable "Advanced" por lista en `/lists-view`.
+- `custom_lists.rotation_interval` — editable desde el editor de custom list.
 - `ROTATION_TICK_INTERVAL` queda solo en env (ritmo del worker interno, no por entidad).
 
 La resolución del valor efectivo vive en `watchlistarr.services.intervals` y siempre se calcula como `entity.<col> or env.<key>` (umbral entero usa `is None`). Cuando un override se guarda o limpia desde la UI, el endpoint llama a `scheduler.sync_jobs()` y los jobs se re-crean con el nuevo trigger sin restart.

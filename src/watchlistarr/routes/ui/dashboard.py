@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -8,8 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.db import get_session
-from watchlistarr.models.enums import SourceType
-from watchlistarr.models.list_items import ListItem
+from watchlistarr.models.base import utcnow
+from watchlistarr.models.custom_lists import CustomList
+from watchlistarr.models.enums import ScrapeStatus
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.scrape_runs import ScrapeRun
 from watchlistarr.models.users import User
@@ -23,47 +25,41 @@ async def dashboard(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> HTMLResponse:
-    users = list((await session.execute(select(User).order_by(User.id))).scalars().all())
-    summary: list[dict[str, object]] = []
-    for user in users:
-        lists = list(
-            (
-                await session.execute(
-                    select(ListModel).where(
-                        ListModel.user_id == user.id, ListModel.enabled.is_(True)
-                    )
-                )
-            )
-            .scalars()
-            .all()
+    users_count = (await session.execute(select(func.count(User.id)))).scalar_one()
+    lists_count = (
+        await session.execute(select(func.count(ListModel.id)).where(ListModel.enabled.is_(True)))
+    ).scalar_one()
+    custom_count = (
+        await session.execute(
+            select(func.count(CustomList.id)).where(CustomList.enabled.is_(True))
         )
-        list_summaries: list[dict[str, object]] = []
-        for lst in lists:
-            count = (
-                await session.execute(
-                    select(func.count(ListItem.list_id)).where(ListItem.list_id == lst.id)
-                )
-            ).scalar_one()
-            list_summaries.append(
-                {
-                    "slug": lst.slug,
-                    "name": lst.name,
-                    "source_type": lst.source_type.value,
-                    "items": count,
-                    "last_sync_status": lst.last_sync_status.value,
-                    "last_synced_at": lst.last_synced_at,
-                }
-            )
-        summary.append({"user": user, "lists": list_summaries})
+    ).scalar_one()
 
-    recent_runs = list(
-        (await session.execute(select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(10)))
-        .scalars()
-        .all()
-    )
+    last_success = (
+        await session.execute(
+            select(func.max(ScrapeRun.ended_at)).where(
+                ScrapeRun.status == ScrapeStatus.SUCCESS
+            )
+        )
+    ).scalar_one()
+
+    one_hour_ago = utcnow() - timedelta(hours=1)
+    recent_errors = (
+        await session.execute(
+            select(func.count(ScrapeRun.id)).where(
+                ScrapeRun.status == ScrapeStatus.ERROR, ScrapeRun.started_at >= one_hour_ago
+            )
+        )
+    ).scalar_one()
 
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"summary": summary, "runs": recent_runs, "source_types": SourceType},
+        {
+            "users_count": users_count,
+            "lists_count": lists_count,
+            "custom_count": custom_count,
+            "last_success": last_success,
+            "recent_errors": recent_errors,
+        },
     )

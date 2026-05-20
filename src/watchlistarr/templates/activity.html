@@ -1,44 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Activity · watchlistarr{% endblock %}
 {% block content %}
-<h1>Actividad</h1>
+<h1>Activity</h1>
+<p><small>Live log tail from the container. New entries arrive automatically.</small></p>
+
 <form method="get" action="/activity">
-  <label>Source
-    <select name="source">
-      <option value="">(todos)</option>
-      {% for s in sources %}
-        <option value="{{ s }}" {% if filter_source == s %}selected{% endif %}>{{ s }}</option>
+  <label>Level
+    <select name="level" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for lv in levels %}
+        <option value="{{ lv }}" {% if level == lv %}selected{% endif %}>{{ lv }}</option>
       {% endfor %}
     </select>
   </label>
-  <label>Status
-    <select name="status">
-      <option value="">(todos)</option>
-      {% for s in statuses %}
-        <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Filtrar</button>
+  <a href="/activity/download" role="button" class="secondary">Download full log</a>
 </form>
 
-{% if runs %}
-<table>
-  <thead><tr><th>Source</th><th>Status</th><th>Target</th><th>Inicio</th><th>Fin</th><th>Error</th></tr></thead>
-  <tbody>
-    {% for r in runs %}
-      <tr>
-        <td>{{ r.source.value }}</td>
-        <td>{{ r.status.value }}</td>
-        <td>{{ r.target_id or "—" }}</td>
-        <td>{{ r.started_at }}</td>
-        <td>{{ r.ended_at or "—" }}</td>
-        <td>{{ r.error or "" }}</td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p><em>Sin ejecuciones registradas con esos filtros.</em></p>
-{% endif %}
+<article>
+  <pre
+    id="log-stream"
+    style="max-height: 70vh; overflow-y: auto; font-size: 0.85rem; background: var(--pico-card-background-color);"
+  >{% for line in lines %}<span data-level="{{ line.level }}">{{ "%-5s"|format(line.level) }} {{ line.message }}</span>
+{% endfor %}<span
+      hx-get="/activity/tail?since={{ latest_seq }}{% if level %}&level={{ level }}{% endif %}"
+      hx-trigger="every 2s"
+      hx-swap="outerHTML"></span></pre>
+</article>
 {% endblock %}

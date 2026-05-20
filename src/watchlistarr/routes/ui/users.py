@@ -26,7 +26,6 @@ from watchlistarr.services.scrape.initial_run import (
     ensure_watchlist_row,
     validate_username,
 )
-from watchlistarr.services.scrape.watchlist import sync_watchlist_full
 
 
 def _td_seconds(td: timedelta | None) -> int | None:
@@ -37,12 +36,6 @@ def _td_from_form(seconds: int | None) -> timedelta | None:
     if seconds is None or seconds <= 0:
         return None
     return timedelta(seconds=seconds)
-
-
-def _int_from_form(value: int | None) -> int | None:
-    if value is None or value <= 0:
-        return None
-    return value
 
 
 logger = structlog.get_logger(__name__)
@@ -57,7 +50,6 @@ async def _run_step(
     target_id: int | None,
     body: Callable[[AsyncSession], Awaitable[None]],
 ) -> bool:
-    """Ejecuta `body` en su propia sesión + commit, registra ScrapeRun. Devuelve True si OK."""
     try:
         await with_scrape_audit(factory, source, target_id, body)
         return True
@@ -72,6 +64,8 @@ async def _initial_run_in_background(
     user_id: int,
     scheduler: object | None,
 ) -> None:
+    """Initial onboarding: discover lists + films-backstop. Nothing is enabled
+    until the user toggles it on; the watchlist is NOT scraped automatically."""
     client = LetterboxdClient(settings)
     logger.info("initial_run.background.start", user_id=user_id)
     try:
@@ -88,22 +82,6 @@ async def _initial_run_in_background(
                 return
             await discover_lists(session, client, user)
 
-        async def _watchlist(session: AsyncSession) -> None:
-            user = await session.get(User, user_id)
-            if user is None:
-                return
-            watchlist = (
-                await session.execute(
-                    select(ListModel).where(
-                        ListModel.user_id == user.id,
-                        ListModel.source_type == SourceType.WATCHLIST,
-                    )
-                )
-            ).scalar_one_or_none()
-            if watchlist is None:
-                return
-            await sync_watchlist_full(session, client, watchlist)
-
         async def _backstop(session: AsyncSession) -> None:
             user = await session.get(User, user_id)
             if user is None:
@@ -112,7 +90,6 @@ async def _initial_run_in_background(
 
         await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _ensure_wl)
         await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _discover)
-        await _run_step(factory, ScrapeSource.WATCHLIST, user_id, _watchlist)
         await _run_step(factory, ScrapeSource.FILMS, user_id, _backstop)
     finally:
         await client.aclose()
@@ -131,7 +108,17 @@ async def list_users(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> HTMLResponse:
     users = list((await session.execute(select(User).order_by(User.id))).scalars().all())
-    return templates.TemplateResponse(request, "users/list.html", {"users": users})
+    counts: dict[int, int] = {}
+    for u in users:
+        n = (
+            await session.execute(
+                select(ListModel).where(ListModel.user_id == u.id, ListModel.enabled.is_(True))
+            )
+        ).scalars().all()
+        counts[u.id] = len(list(n))
+    return templates.TemplateResponse(
+        request, "users/list.html", {"users": users, "counts": counts}
+    )
 
 
 @router.post("")
@@ -202,17 +189,53 @@ async def user_detail(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404)
+
     lists = list(
         (await session.execute(select(ListModel).where(ListModel.user_id == user.id)))
         .scalars()
         .all()
     )
-    watchlists = [lst for lst in lists if lst.source_type is SourceType.WATCHLIST]
-    custom = [lst for lst in lists if lst.source_type is SourceType.LIST]
+    # Watchlist first, then public lists alphabetically
+    watchlist = next(
+        (lst for lst in lists if lst.source_type is SourceType.WATCHLIST), None
+    )
+    public_lists = sorted(
+        (lst for lst in lists if lst.source_type is SourceType.LIST),
+        key=lambda lst: lst.name.lower(),
+    )
+    ordered: list[ListModel] = []
+    if watchlist is not None:
+        ordered.append(watchlist)
+    ordered.extend(public_lists)
+
+    env = get_settings()
+    advanced_user = {
+        "rss_interval": (_td_seconds(user.rss_interval), int(env.rss_interval.total_seconds())),
+        "watchlist_incremental_interval": (
+            _td_seconds(user.watchlist_incremental_interval),
+            int(env.watchlist_incremental_interval.total_seconds()),
+        ),
+        "watchlist_full_interval": (
+            _td_seconds(user.watchlist_full_interval),
+            int(env.watchlist_full_interval.total_seconds()),
+        ),
+        "films_backstop_interval": (
+            _td_seconds(user.films_backstop_interval),
+            int(env.films_backstop_interval.total_seconds()),
+        ),
+        "discovery_interval": (
+            _td_seconds(user.discovery_interval),
+            int(env.discovery_interval.total_seconds()),
+        ),
+    }
     return templates.TemplateResponse(
         request,
         "users/detail.html",
-        {"user": user, "watchlists": watchlists, "custom": custom},
+        {
+            "user": user,
+            "lists": ordered,
+            "advanced_user": advanced_user,
+        },
     )
 
 
@@ -237,36 +260,6 @@ async def toggle_list(
     if scheduler is not None:
         await scheduler.sync_jobs()
     return RedirectResponse(url=f"/users/{username}", status_code=303)
-
-
-_USER_INTERVAL_KEYS: tuple[str, ...] = (
-    "rss_interval",
-    "watchlist_incremental_interval",
-    "watchlist_full_interval",
-    "films_backstop_interval",
-    "discovery_interval",
-)
-
-
-@router.get("/{username}/intervals", response_class=HTMLResponse)
-async def user_intervals_page(
-    request: Request,
-    username: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> HTMLResponse:
-    user = (
-        await session.execute(select(User).where(User.letterboxd_username == username))
-    ).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404)
-    env = get_settings()
-    overrides = {key: _td_seconds(getattr(user, key)) for key in _USER_INTERVAL_KEYS}
-    defaults = {key: int(getattr(env, key).total_seconds()) for key in _USER_INTERVAL_KEYS}
-    return templates.TemplateResponse(
-        request,
-        "users/intervals.html",
-        {"user": user, "overrides": overrides, "defaults": defaults},
-    )
 
 
 @router.post("/{username}/intervals")
@@ -294,73 +287,4 @@ async def update_user_intervals(
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:
         await scheduler.sync_jobs()
-    return RedirectResponse(url=f"/users/{username}/intervals", status_code=303)
-
-
-@router.get("/{username}/lists/{list_slug}/settings", response_class=HTMLResponse)
-async def list_settings_page(
-    request: Request,
-    username: str,
-    list_slug: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> HTMLResponse:
-    user = (
-        await session.execute(select(User).where(User.letterboxd_username == username))
-    ).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404)
-    lst = (
-        await session.execute(
-            select(ListModel).where(ListModel.user_id == user.id, ListModel.slug == list_slug)
-        )
-    ).scalar_one_or_none()
-    if lst is None:
-        raise HTTPException(status_code=404)
-    env = get_settings()
-    overrides = {
-        "lists_incremental_interval": _td_seconds(lst.lists_incremental_interval),
-        "lists_full_interval": _td_seconds(lst.lists_full_interval),
-        "flap_confirm_scrapes": lst.flap_confirm_scrapes,
-    }
-    defaults = {
-        "lists_incremental_interval": int(env.lists_incremental_interval.total_seconds()),
-        "lists_full_interval": int(env.lists_full_interval.total_seconds()),
-        "flap_confirm_scrapes": env.flap_confirm_scrapes,
-    }
-    return templates.TemplateResponse(
-        request,
-        "users/list_settings.html",
-        {"user": user, "lst": lst, "overrides": overrides, "defaults": defaults},
-    )
-
-
-@router.post("/{username}/lists/{list_slug}/settings")
-async def update_list_settings(
-    request: Request,
-    username: str,
-    list_slug: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
-    lists_incremental_interval: Annotated[int | None, Form()] = None,
-    lists_full_interval: Annotated[int | None, Form()] = None,
-    flap_confirm_scrapes: Annotated[int | None, Form()] = None,
-) -> RedirectResponse:
-    user = (
-        await session.execute(select(User).where(User.letterboxd_username == username))
-    ).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404)
-    lst = (
-        await session.execute(
-            select(ListModel).where(ListModel.user_id == user.id, ListModel.slug == list_slug)
-        )
-    ).scalar_one_or_none()
-    if lst is None:
-        raise HTTPException(status_code=404)
-    lst.lists_incremental_interval = _td_from_form(lists_incremental_interval)
-    lst.lists_full_interval = _td_from_form(lists_full_interval)
-    lst.flap_confirm_scrapes = _int_from_form(flap_confirm_scrapes)
-    await session.commit()
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler is not None:
-        await scheduler.sync_jobs()
-    return RedirectResponse(url=f"/users/{username}/lists/{list_slug}/settings", status_code=303)
+    return RedirectResponse(url=f"/users/{username}", status_code=303)

@@ -4,33 +4,34 @@
 <h1>Users</h1>
 
 <article>
-  <h3>Añadir user</h3>
+  <h3>Add user</h3>
   <form method="post" action="/users">
     <label>
-      Username de Letterboxd
+      Letterboxd username
       <input name="username" required pattern="[A-Za-z0-9_-]+" placeholder="maxlainz">
     </label>
-    <button type="submit">Añadir</button>
+    <button type="submit">Add</button>
   </form>
   <small>
-    Al añadir, se valida con Letterboxd y se ejecuta el arranque inicial
-    (discovery + watchlist full + films-backstop). Esto puede tardar varios minutos.
+    Validates against Letterboxd, then runs an initial discovery in the background.
+    None of the user's lists (watchlist included) is enabled until you toggle it on.
   </small>
 </article>
 
-<h2>Registrados</h2>
+<h2>Registered</h2>
 {% if users %}
   <table>
-    <thead><tr><th>Username</th><th>Display</th><th>Añadido</th><th></th></tr></thead>
+    <thead><tr><th>Username</th><th>Display name</th><th>Lists enabled</th><th>Added</th><th></th></tr></thead>
     <tbody>
       {% for u in users %}
         <tr>
           <td><a href="/users/{{ u.letterboxd_username }}">{{ u.letterboxd_username }}</a></td>
           <td>{{ u.display_name or "—" }}</td>
+          <td>{{ counts.get(u.id, 0) }}</td>
           <td>{{ u.added_at }}</td>
           <td>
             <form method="post" action="/users/{{ u.letterboxd_username }}/delete" style="display:inline">
-              <button type="submit" class="secondary" onclick="return confirm('Eliminar {{ u.letterboxd_username }}? Borrará todas sus listas, sublistas y vistos.')">Eliminar</button>
+              <button type="submit" class="secondary" onclick="return confirm('Delete {{ u.letterboxd_username }}? This removes all their lists, custom lists and watch history.')">Delete</button>
             </form>
           </td>
         </tr>
@@ -38,6 +39,6 @@
     </tbody>
   </table>
 {% else %}
-  <p><em>Ninguno aún.</em></p>
+  <p><em>No users yet.</em></p>
 {% endif %}
 {% endblock %}

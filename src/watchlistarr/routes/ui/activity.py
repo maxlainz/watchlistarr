@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-import contextlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from watchlistarr.db import get_session
-from watchlistarr.models.enums import ScrapeSource, ScrapeStatus
-from watchlistarr.models.scrape_runs import ScrapeRun
 from watchlistarr.routes.ui import templates
+from watchlistarr.services.log_buffer import get_buffer
 
 router = APIRouter()
 
@@ -19,27 +14,47 @@ router = APIRouter()
 @router.get("/activity", response_class=HTMLResponse)
 async def activity_page(
     request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
-    source: Annotated[str | None, Query()] = None,
-    status: Annotated[str | None, Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    level: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    stmt = select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(limit)
-    if source:
-        with contextlib.suppress(ValueError):
-            stmt = stmt.where(ScrapeRun.source == ScrapeSource(source))
-    if status:
-        with contextlib.suppress(ValueError):
-            stmt = stmt.where(ScrapeRun.status == ScrapeStatus(status))
-    runs = list((await session.execute(stmt)).scalars().all())
+    buf = get_buffer()
+    lines = buf.snapshot()
+    if level:
+        wanted = level.upper()
+        lines = [line for line in lines if line.level == wanted]
+    latest_seq = buf.latest_seq()
     return templates.TemplateResponse(
         request,
         "activity.html",
         {
-            "runs": runs,
-            "sources": [s.value for s in ScrapeSource],
-            "statuses": [s.value for s in ScrapeStatus],
-            "filter_source": source,
-            "filter_status": status,
+            "lines": lines,
+            "latest_seq": latest_seq,
+            "level": level,
+            "levels": ["DEBUG", "INFO", "WARNING", "ERROR"],
         },
+    )
+
+
+@router.get("/activity/tail", response_class=HTMLResponse)
+async def activity_tail(
+    request: Request,
+    since: Annotated[int, Query(ge=0)] = 0,
+    level: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    buf = get_buffer()
+    lines = buf.snapshot(since=since)
+    if level:
+        wanted = level.upper()
+        lines = [line for line in lines if line.level == wanted]
+    latest_seq = buf.latest_seq() if lines == [] else lines[-1].seq
+    return templates.TemplateResponse(
+        request,
+        "activity/tail_fragment.html",
+        {"lines": lines, "latest_seq": latest_seq, "level": level or ""},
+    )
+
+
+@router.get("/activity/download")
+async def activity_download() -> PlainTextResponse:
+    return PlainTextResponse(
+        get_buffer().dump_text(), headers={"Content-Disposition": "attachment; filename=watchlistarr.log"}
     )

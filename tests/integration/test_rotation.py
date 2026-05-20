@@ -6,18 +6,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.models.base import utcnow
-from watchlistarr.models.enums import SourceType
+from watchlistarr.models.custom_list_items import CustomListItem
+from watchlistarr.models.custom_list_sources import CustomListSource
+from watchlistarr.models.custom_lists import CustomList
+from watchlistarr.models.enums import CombinationOp, SortOrder, SourceRole, SourceType
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.lists import List as ListModel
-from watchlistarr.models.sublist_items import SublistItem
-from watchlistarr.models.sublists import Sublist
 from watchlistarr.models.users import User
-from watchlistarr.services.rotation import (
+from watchlistarr.services.custom_lists import (
     eligible_pool,
-    init_sublist_items,
-    recalculate_sublist,
-    rotate_sublist,
+    init_items,
+    recalculate,
+    rotate,
 )
 
 
@@ -50,22 +51,41 @@ async def _seed_user_list(
     return user, parent
 
 
-async def test_init_sublist_items_picks_random_subset(session: AsyncSession) -> None:
-    user, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
-    sublist = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
-        slug="top",
-        name="Top",
-        max_items=3,
-    )
-    session.add(sublist)
+async def _make_custom_list(
+    session: AsyncSession, parent: ListModel, **kwargs: object
+) -> CustomList:
+    defaults: dict[str, object] = {
+        "slug": "top",
+        "name": "Top",
+        "op": CombinationOp.UNION,
+        "sort_order": SortOrder.LETTERBOXD,
+        "rotation_enabled": False,
+        "rotation_batch_size": 1,
+        "enabled": True,
+    }
+    defaults.update(kwargs)
+    cl = CustomList(**defaults)  # type: ignore[arg-type]
+    session.add(cl)
     await session.flush()
+    session.add(
+        CustomListSource(custom_list_id=cl.id, list_id=parent.id, role=SourceRole.INCLUDE)
+    )
+    await session.flush()
+    return cl
 
-    count = await init_sublist_items(session, sublist)
+
+async def test_init_items_picks_random_subset(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
+    cl = await _make_custom_list(session, parent, max_items=3)
+
+    count = await init_items(session, cl)
     assert count == 3
     items = (
-        (await session.execute(select(SublistItem).where(SublistItem.sublist_id == sublist.id)))
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -73,113 +93,104 @@ async def test_init_sublist_items_picks_random_subset(session: AsyncSession) -> 
 
 
 async def test_eligible_pool_excludes_already_served(session: AsyncSession) -> None:
-    user, parent = await _seed_user_list(session, [1, 2, 3])
-    sublist = Sublist(user_id=user.id, parent_list_id=parent.id, slug="s", name="S", max_items=2)
-    session.add(sublist)
-    await session.flush()
-    session.add(SublistItem(sublist_id=sublist.id, tmdb_id=1, position=0))
+    _, parent = await _seed_user_list(session, [1, 2, 3])
+    cl = await _make_custom_list(session, parent, slug="served", max_items=2)
+    session.add(CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0))
     await session.flush()
 
-    pool = await eligible_pool(session, sublist)
+    pool = await eligible_pool(session, cl)
     assert sorted(pool) == [2, 3]
 
 
-async def test_recalculate_sublist_drops_invalid_and_refills(session: AsyncSession) -> None:
-    user, parent = await _seed_user_list(session, [1, 2, 3, 4], year=2010)
-    # Cambiar el year de uno para que filtre.
+async def test_recalculate_drops_invalid_and_refills(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4], year=2010)
     film2 = await session.get(Film, 2)
     assert film2 is not None
     film2.year = 1990
-    sublist = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
-        slug="modern",
-        name="Modern",
-        max_items=3,
-        min_year=2000,
+    cl = await _make_custom_list(
+        session, parent, slug="modern", max_items=3, min_year=2000
     )
-    session.add(sublist)
-    await session.flush()
     session.add_all(
         [
-            SublistItem(sublist_id=sublist.id, tmdb_id=1, position=0),
-            SublistItem(sublist_id=sublist.id, tmdb_id=2, position=1),  # ya no califica
+            CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=2, position=1),
         ]
     )
     await session.flush()
 
-    await recalculate_sublist(session, sublist)
+    await recalculate(session, cl)
     items = (
-        (await session.execute(select(SublistItem).where(SublistItem.sublist_id == sublist.id)))
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
         .scalars()
         .all()
     )
     tmdb_ids = sorted(it.tmdb_id for it in items)
     assert 2 not in tmdb_ids
-    assert len(tmdb_ids) == 3  # rellenado hasta max_items con pool válido
+    assert len(tmdb_ids) == 3
 
 
-async def test_rotate_sublist_respects_interval(session: AsyncSession) -> None:
-    user, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
-    sublist = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
+async def test_rotate_respects_interval(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
+    cl = await _make_custom_list(
+        session,
+        parent,
         slug="rot",
-        name="Rot",
         max_items=2,
         rotation_enabled=True,
         rotation_interval=timedelta(days=7),
         rotation_batch_size=1,
         last_rotated_at=utcnow(),
     )
-    session.add(sublist)
-    await session.flush()
     session.add_all(
         [
-            SublistItem(sublist_id=sublist.id, tmdb_id=1, position=0),
-            SublistItem(sublist_id=sublist.id, tmdb_id=2, position=1),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=2, position=1),
         ]
     )
     await session.flush()
 
-    rotated = await rotate_sublist(session, sublist)
+    rotated = await rotate(session, cl)
     assert rotated == 0
 
 
-async def test_rotate_sublist_swaps_oldest(session: AsyncSession) -> None:
-    user, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
-    sublist = Sublist(
-        user_id=user.id,
-        parent_list_id=parent.id,
+async def test_rotate_swaps_oldest(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
+    cl = await _make_custom_list(
+        session,
+        parent,
         slug="rot",
-        name="Rot",
         max_items=2,
         rotation_enabled=True,
         rotation_interval=timedelta(seconds=1),
         rotation_batch_size=1,
         last_rotated_at=utcnow() - timedelta(hours=1),
     )
-    session.add(sublist)
-    await session.flush()
     older = utcnow() - timedelta(days=2)
     newer = utcnow() - timedelta(hours=1)
     session.add_all(
         [
-            SublistItem(sublist_id=sublist.id, tmdb_id=1, position=0, served_since=older),
-            SublistItem(sublist_id=sublist.id, tmdb_id=2, position=1, served_since=newer),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0, served_since=older),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=2, position=1, served_since=newer),
         ]
     )
     await session.flush()
 
-    rotated = await rotate_sublist(session, sublist)
+    rotated = await rotate(session, cl)
     assert rotated == 1
     items = (
-        (await session.execute(select(SublistItem).where(SublistItem.sublist_id == sublist.id)))
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
         .scalars()
         .all()
     )
     tmdb_ids = sorted(it.tmdb_id for it in items)
-    # El más viejo (1) sale; el más nuevo (2) queda; entra uno random del pool {3,4,5}.
     assert 1 not in tmdb_ids
     assert 2 in tmdb_ids
     assert len(tmdb_ids) == 2

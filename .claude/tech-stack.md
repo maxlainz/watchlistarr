@@ -97,19 +97,20 @@ watchlistarr/
 │   │   │   ├── films.py       # backstop /films/ p1
 │   │   │   └── film_page.py   # /film/{slug}/ → tmdb_id
 │   │   ├── scrape/            # full + incremental orchestrators
-│   │   ├── rotation.py
-│   │   ├── combined.py        # queries virtuales /all/
+│   │   ├── custom_lists.py    # resolver multi-source + rotation + log_buffer
+│   │   ├── log_buffer.py
 │   │   └── radarr.py          # serializador JSON
 │   ├── scheduler.py           # APScheduler wiring
 │   ├── routes/
 │   │   ├── ui/                # routers HTML (Jinja2)
 │   │   └── api/               # routers JSON (Radarr endpoints)
-│   ├── templates/             # Jinja2 templates
-│   │   ├── base.html
-│   │   ├── dashboard.html
-│   │   ├── users/
-│   │   └── sublists/
-│   └── static/                # pico.min.css, htmx.min.js
+│   └── templates/             # Jinja2 templates
+│       ├── base.html
+│       ├── dashboard.html
+│       ├── users/
+│       ├── lists/
+│       ├── custom_lists/
+│       └── activity/
 └── tests/
     ├── conftest.py
     ├── fixtures/              # HTML/RSS recortados de Letterboxd real

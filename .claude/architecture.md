@@ -17,11 +17,9 @@ Letterboxd (HTML + RSS, multi-user)
         │
         ▼
    API HTTP
-   ├ /<user>/<slug>/        (lista parent cruda)
-   ├ /<user>/<sublist>/     (sublista del user con cap/filtros/rotación)
-   ├ /<user>/watchlist/     (watchlist personal cruda)
-   ├ /all/watchlist/<combo> (combinada cruda)
-   └ /all/<sublist>/        (sublista sobre combinada)
+   ├ /<user>/<slug>/    (lista cruda del user)
+   ├ /<user>/watchlist/ (watchlist del user, si está enabled)
+   └ /lists/<slug>/     (custom list multi-source)
         │
         ▼
    Radarr (Custom Lists, una por endpoint)
@@ -29,8 +27,8 @@ Letterboxd (HTML + RSS, multi-user)
 
 - Los sync workers traducen Letterboxd a DB. Cada uno con su frecuencia configurable (ver [`sync-strategy.md`](sync-strategy.md)).
 - La DB es **autoritativa**: lo que servimos a Radarr es siempre un SELECT, nunca on-the-fly.
-- La UI deja al usuario añadir perfiles de Letterboxd, activar listas descubiertas y crear sublistas con sus políticas (cap, filtros, rotación). Detalles: [`ui-features.md`](ui-features.md).
-- Las listas combinadas crudas (`/all/watchlist/...`) son queries virtuales sobre las watchlists de todos los users registrados. Las sublistas pueden tener como parent una combinada.
+- La UI deja al usuario añadir perfiles de Letterboxd, activar listas descubiertas (watchlist incluida) y crear custom lists multi-source con sus políticas (cap, filtros, rotación). Detalles: [`ui-features.md`](ui-features.md).
+- Las custom lists son **multi-source**: combinan N listas con `op=union/intersection`, opcionalmente restan otras listas (`role=subtract`) y restan films vistos por users seleccionados (`excluded_watchers`). Su cómputo vive en `custom_list_items`. Las viejas "combinadas predefinidas" (`union` / `intersection` / `union-unwatched`) desaparecieron: ahora son casos del editor multi-source.
 
 ## Componentes objetivo
 
@@ -40,15 +38,14 @@ Letterboxd (HTML + RSS, multi-user)
 - **Films-backstop**: scrape periódico de `/{user}/films/` página 1 (≈72 últimos vistos) para rellenar gaps del RSS. También se dispara ad-hoc durante el anti-flap.
 - **Discovery**: scrape periódico de `/{user}/lists/` para detectar listas nuevas o eliminadas. Las nuevas entran como `enabled=false`; el user las activa desde la UI.
 
-### Combined views (crudas)
-- `/all/watchlist/union/`, `/all/watchlist/intersection/`, `/all/watchlist/union-unwatched/`. Resueltas con queries SQL sobre `list_items` + `watched_films`. Universo = todos los users registrados, siempre.
-
-### Sublistas
-- Vistas servidas con cap (`max_items`), filtros estáticos (rating, año, fecha de adición) y rotación temporal opcional. Cada sublista tiene su propia URL bajo `/<user>/<slug>/` o `/all/<slug>/`.
-- Modelo: [`data-model.md`](data-model.md). Operaciones desde UI: [`ui-features.md`](ui-features.md).
+### Custom lists (multi-source)
+- Una custom list referencia N `lists` como `include` sources (combinadas con `op=union` o `intersection`), N como `subtract` sources (siempre se restan) y N `users` como `excluded_watchers` (sus `watched_films` se restan).
+- Se sirven en `/lists/<slug>/`. Slug único global.
+- Soportan cap (`max_items`), filtros estáticos (rating, año, fecha de adición) y rotación temporal opcional.
+- Resolución detallada en [`data-model.md`](data-model.md#custom-lists-resolución).
 
 ### Rotation worker
-- Independiente del scraping, no toca la red. Recorre sublistas con rotación activada cada `ROTATION_TICK_INTERVAL` (default 1 h) y aplica FIFO temporal: saca las que llevan más tiempo servidas, mete random del pool elegible. Detalles: [`sync-strategy.md`](sync-strategy.md).
+- Independiente del scraping, no toca la red. Recorre custom lists con rotación activada cada `ROTATION_TICK_INTERVAL` (default 1 h) y aplica FIFO temporal: saca las que llevan más tiempo servidas, mete random del pool elegible. Detalles: [`sync-strategy.md`](sync-strategy.md).
 
 ### DB interna
 - Esquema canónico en [`data-model.md`](data-model.md). Multi-user nativo, identidad por `tmdb_id`.
@@ -67,7 +64,7 @@ Letterboxd (HTML + RSS, multi-user)
 1. **DB autoritativa**. Lo servido a Radarr es siempre un SELECT, nunca on-the-fly. Evita parpadeos que llevarían a Radarr a borrar pelis que tardaron semanas en bajar.
 2. **RSS-driven en caliente**. Cambios de vistos llegan por RSS con baja latencia. Los scrapes son para arranque inicial y verificación.
 3. **Anti-flap por verificación cruzada**. Antes de retirar un item de la lista servida: cruzar con `watched_films`, con `/films/` backstop y con `(title, year)` para detectar rename. Solo eliminar tras `FLAP_CONFIRM_SCRAPES` (default 3) confirmaciones consecutivas.
-4. **Multi-user nativo**. Una instancia soporta N perfiles + combinadas en `/all/`.
+4. **Multi-user nativo**. Una instancia soporta N perfiles. Las custom lists pueden combinar listas de cualquier user.
 5. **Todo configurable**. Frecuencias de RSS, watchlist (incremental + full), listas (incremental + full), films-backstop y discovery son variables de entorno.
 
 ## Decisiones técnicas

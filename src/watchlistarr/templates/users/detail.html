@@ -2,64 +2,72 @@
 {% block title %}{{ user.letterboxd_username }} · watchlistarr{% endblock %}
 {% block content %}
 <h1>{{ user.letterboxd_username }}</h1>
-<p>
-  <a href="/users">← volver a users</a> ·
-  <a href="/users/{{ user.letterboxd_username }}/intervals">Editar frecuencias</a>
-</p>
+<p><a href="/users">← back to users</a></p>
 
-{% if not watchlists and not custom %}
+{% if not lists %}
 <article>
-  <p><strong>Arranque inicial en progreso…</strong></p>
-  <p>Se está descubriendo las listas, sincronizando la watchlist completa y poblando los vistos recientes. Puede tardar varios minutos (la primera vez se resuelve un TMDB ID por cada peli, con rate-limit de 2&nbsp;s).</p>
-  <p>Refresca esta página dentro de un rato. Sigue el progreso en <a href="/activity">/activity</a>.</p>
+  <p><strong>Initial discovery in progress…</strong></p>
+  <p>Discovering this user's public lists. Check <a href="/activity">Activity</a> for progress. Refresh this page in a moment.</p>
 </article>
 {% endif %}
 
-<h2>Watchlist</h2>
-{% if watchlists %}
+<h2>Discovered lists</h2>
+<p>
+  <small>Pick which lists to monitor. The watchlist behaves like any other list:
+  it's only scraped after you enable it.</small>
+</p>
+{% if lists %}
   <table>
-    <thead><tr><th>Slug</th><th>Status</th><th>Sync</th></tr></thead>
-    <tbody>
-    {% for w in watchlists %}
+    <thead>
       <tr>
-        <td><code>/{{ user.letterboxd_username }}/{{ w.slug }}/</code></td>
-        <td>{{ w.last_sync_status.value }}</td>
-        <td>{{ w.last_synced_at or "—" }}</td>
+        <th>Name</th>
+        <th>Slug</th>
+        <th>Films</th>
+        <th>Last sync</th>
+        <th>Status</th>
+        <th>Enabled</th>
+        <th></th>
       </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-{% else %}
-  <p><em>Sin watchlist registrada (raro tras arranque inicial).</em></p>
-{% endif %}
-
-<h2>Listas descubiertas</h2>
-{% if custom %}
-  <table>
-    <thead><tr><th>Slug</th><th>Nombre</th><th>Films</th><th>Habilitada</th><th></th><th></th></tr></thead>
+    </thead>
     <tbody>
-    {% for l in custom %}
+    {% for l in lists %}
       <tr>
+        <td>{{ "Watchlist" if l.source_type.value == "watchlist" else l.name }}</td>
         <td><code>{{ l.slug }}</code></td>
-        <td>{{ l.name }}</td>
         <td>{{ l.film_count }}</td>
-        <td>{{ "sí" if l.enabled else "no" }}</td>
+        <td>{{ l.last_synced_at or "—" }}</td>
+        <td>{{ l.last_sync_status.value }}</td>
+        <td>{{ "yes" if l.enabled else "no" }}</td>
         <td>
           <form method="post" action="/users/{{ user.letterboxd_username }}/lists/{{ l.id }}/toggle">
-            <button type="submit">{{ "Desactivar" if l.enabled else "Activar" }}</button>
+            <button type="submit">{{ "Disable" if l.enabled else "Enable" }}</button>
           </form>
-        </td>
-        <td>
-          <a href="/users/{{ user.letterboxd_username }}/lists/{{ l.slug }}/settings">Settings</a>
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
 {% else %}
-  <p><em>El discovery aún no ha encontrado listas (o el user no tiene listas públicas).</em></p>
+  <p><em>Discovery hasn't found any lists yet.</em></p>
 {% endif %}
 
-<h2>Sublistas</h2>
-<p><a href="/users/{{ user.letterboxd_username }}/sublists/new">+ Nueva sublista</a></p>
+<details>
+  <summary>⚙ Advanced</summary>
+  <p><small>Override scheduling intervals for this user. Leave blank to inherit the environment defaults shown as placeholders. Values in seconds.</small></p>
+  <form method="post" action="/users/{{ user.letterboxd_username }}/intervals">
+    {% for key, pair in advanced_user.items() %}
+      {% set override, default = pair %}
+      <label>{{ key }}
+        <input
+          name="{{ key }}"
+          type="number"
+          min="1"
+          value="{{ override if override is not none else '' }}"
+          placeholder="{{ default }} (default)"
+        >
+      </label>
+    {% endfor %}
+    <button type="submit">Save intervals</button>
+  </form>
+</details>
 {% endblock %}

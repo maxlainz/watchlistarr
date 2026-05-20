@@ -10,12 +10,20 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from watchlistarr.models.enums import SourceType, WatchedSource
+from watchlistarr.models.custom_list_excluded_watchers import CustomListExcludedWatcher
+from watchlistarr.models.custom_list_items import CustomListItem
+from watchlistarr.models.custom_list_sources import CustomListSource
+from watchlistarr.models.custom_lists import CustomList
+from watchlistarr.models.enums import (
+    CombinationOp,
+    SortOrder,
+    SourceRole,
+    SourceType,
+    WatchedSource,
+)
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.lists import List as ListModel
-from watchlistarr.models.sublist_items import SublistItem
-from watchlistarr.models.sublists import Sublist
 from watchlistarr.models.users import User
 from watchlistarr.models.watched_films import WatchedFilm
 
@@ -40,10 +48,18 @@ async def _seed_two_users(factory: async_sessionmaker[AsyncSession]) -> None:
         await session.flush()
 
         alice_wl = ListModel(
-            user_id=alice.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL"
+            user_id=alice.id,
+            source_type=SourceType.WATCHLIST,
+            slug="watchlist",
+            name="WL",
+            enabled=True,
         )
         bob_wl = ListModel(
-            user_id=bob.id, source_type=SourceType.WATCHLIST, slug="watchlist", name="WL"
+            user_id=bob.id,
+            source_type=SourceType.WATCHLIST,
+            slug="watchlist",
+            name="WL",
+            enabled=True,
         )
         session.add_all([alice_wl, bob_wl])
         await session.flush()
@@ -58,18 +74,102 @@ async def _seed_two_users(factory: async_sessionmaker[AsyncSession]) -> None:
             ]
         )
 
-        alice_top = Sublist(
-            user_id=alice.id,
-            parent_list_id=alice_wl.id,
-            slug="top",
-            name="Top",
+        # Custom list: union of alice + bob watchlists
+        union_cl = CustomList(
+            slug="anyone",
+            name="Anyone wants to watch",
+            op=CombinationOp.UNION,
+            sort_order=SortOrder.LETTERBOXD,
+            rotation_enabled=False,
+            rotation_batch_size=1,
+            enabled=True,
         )
-        session.add(alice_top)
+        session.add(union_cl)
         await session.flush()
         session.add_all(
             [
-                SublistItem(sublist_id=alice_top.id, tmdb_id=10, position=0),
-                SublistItem(sublist_id=alice_top.id, tmdb_id=20, position=1),
+                CustomListSource(
+                    custom_list_id=union_cl.id,
+                    list_id=alice_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+                CustomListSource(
+                    custom_list_id=union_cl.id,
+                    list_id=bob_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+            ]
+        )
+        # init items manually with all 4 tmdb_ids
+        session.add_all(
+            [
+                CustomListItem(custom_list_id=union_cl.id, tmdb_id=10, position=0),
+                CustomListItem(custom_list_id=union_cl.id, tmdb_id=20, position=1),
+                CustomListItem(custom_list_id=union_cl.id, tmdb_id=30, position=2),
+                CustomListItem(custom_list_id=union_cl.id, tmdb_id=40, position=3),
+            ]
+        )
+
+        # Custom list: intersection — only tmdb_id 30 is in both watchlists
+        inter_cl = CustomList(
+            slug="everyone",
+            name="Everyone wants to watch",
+            op=CombinationOp.INTERSECTION,
+            sort_order=SortOrder.LETTERBOXD,
+            rotation_enabled=False,
+            rotation_batch_size=1,
+            enabled=True,
+        )
+        session.add(inter_cl)
+        await session.flush()
+        session.add_all(
+            [
+                CustomListSource(
+                    custom_list_id=inter_cl.id,
+                    list_id=alice_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+                CustomListSource(
+                    custom_list_id=inter_cl.id,
+                    list_id=bob_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+            ]
+        )
+        session.add(CustomListItem(custom_list_id=inter_cl.id, tmdb_id=30, position=0))
+
+        # Custom list: union minus already-watched by alice (tmdb_id 10)
+        pending_cl = CustomList(
+            slug="pending",
+            name="Pending in common",
+            op=CombinationOp.UNION,
+            sort_order=SortOrder.LETTERBOXD,
+            rotation_enabled=False,
+            rotation_batch_size=1,
+            enabled=True,
+        )
+        session.add(pending_cl)
+        await session.flush()
+        session.add_all(
+            [
+                CustomListSource(
+                    custom_list_id=pending_cl.id,
+                    list_id=alice_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+                CustomListSource(
+                    custom_list_id=pending_cl.id,
+                    list_id=bob_wl.id,
+                    role=SourceRole.INCLUDE,
+                ),
+                CustomListExcludedWatcher(custom_list_id=pending_cl.id, user_id=alice.id),
+            ]
+        )
+        session.add_all(
+            [
+                CustomListItem(custom_list_id=pending_cl.id, tmdb_id=20, position=0),
+                CustomListItem(custom_list_id=pending_cl.id, tmdb_id=30, position=1),
+                CustomListItem(custom_list_id=pending_cl.id, tmdb_id=40, position=2),
             ]
         )
 
@@ -95,39 +195,30 @@ def test_get_user_watchlist_returns_items(seeded_app: FastAPI) -> None:
     assert isinstance(body, list)
     tmdb_ids = sorted(item["tmdb_id"] for item in body)
     assert tmdb_ids == [10, 20, 30]
-    assert all(isinstance(item["tmdb_id"], int) for item in body)
 
 
-def test_get_combined_union(seeded_app: FastAPI) -> None:
+def test_get_custom_list_union(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        response = client.get("/all/watchlist/union/")
+        response = client.get("/lists/anyone/")
     assert response.status_code == 200
     tmdb_ids = sorted(item["tmdb_id"] for item in response.json())
     assert tmdb_ids == [10, 20, 30, 40]
 
 
-def test_get_combined_intersection(seeded_app: FastAPI) -> None:
+def test_get_custom_list_intersection(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        response = client.get("/all/watchlist/intersection/")
+        response = client.get("/lists/everyone/")
     assert response.status_code == 200
     tmdb_ids = [item["tmdb_id"] for item in response.json()]
     assert tmdb_ids == [30]
 
 
-def test_get_combined_union_unwatched(seeded_app: FastAPI) -> None:
+def test_get_custom_list_excluding_watched(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        response = client.get("/all/watchlist/union-unwatched/")
+        response = client.get("/lists/pending/")
     assert response.status_code == 200
     tmdb_ids = sorted(item["tmdb_id"] for item in response.json())
     assert tmdb_ids == [20, 30, 40]
-
-
-def test_get_user_sublist(seeded_app: FastAPI) -> None:
-    with TestClient(seeded_app) as client:
-        response = client.get("/alice/top/")
-    assert response.status_code == 200
-    tmdb_ids = sorted(item["tmdb_id"] for item in response.json())
-    assert tmdb_ids == [10, 20]
 
 
 def test_404_when_user_does_not_exist(seeded_app: FastAPI) -> None:
@@ -142,10 +233,22 @@ def test_404_when_slug_does_not_exist(seeded_app: FastAPI) -> None:
     assert response.status_code == 404
 
 
-def test_404_when_combo_unknown(seeded_app: FastAPI) -> None:
+def test_404_when_custom_list_unknown(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        response = client.get("/all/watchlist/notakind/")
+        response = client.get("/lists/nope/")
     assert response.status_code == 404
+
+
+def test_old_combined_urls_gone(seeded_app: FastAPI) -> None:
+    """The old /all/watchlist/<kind>/ endpoints are removed."""
+    with TestClient(seeded_app) as client:
+        for path in (
+            "/all/watchlist/union/",
+            "/all/watchlist/intersection/",
+            "/all/watchlist/union-unwatched/",
+        ):
+            response = client.get(path)
+            assert response.status_code == 404
 
 
 def test_reserved_username_returns_404(seeded_app: FastAPI) -> None:

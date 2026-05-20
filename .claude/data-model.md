@@ -1,6 +1,6 @@
 # Modelo de datos
 
-Esquema lógico de la DB interna de watchlistarr. El motor concreto (SQLite / Postgres / otro) es TBD hasta que se elija stack, pero las entidades, claves y relaciones que siguen son canónicas.
+Esquema lógico de la DB interna de watchlistarr. Motor concreto: SQLite. Las entidades, claves y relaciones que siguen son canónicas.
 
 Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan estas tablas y cuándo.
 
@@ -15,14 +15,16 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | Tabla | Clave / campos | Notas |
 |---|---|---|
 | `users` | `id` (PK), `letterboxd_username` (unique), `display_name`, `added_at`, `rss_interval` (nullable), `watchlist_incremental_interval` (nullable), `watchlist_full_interval` (nullable), `films_backstop_interval` (nullable), `discovery_interval` (nullable) | Un perfil de Letterboxd = un user en la app. Los `*_interval` son **overrides**: NULL = heredar el default de la env var del mismo nombre |
-| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status`, `lists_incremental_interval` (nullable), `lists_full_interval` (nullable), `flap_confirm_scrapes` (nullable) | Lista parent (fuente). `max_items`/`sort_order`/rotación viven en `sublists`, no aquí. Watchlist = `source_type='watchlist'` y `slug='watchlist'`. Los `*_interval` y `flap_confirm_scrapes` son overrides; NULL = heredar de env |
+| `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status`, `lists_incremental_interval` (nullable), `lists_full_interval` (nullable), `flap_confirm_scrapes` (nullable) | Lista importada de Letterboxd. La watchlist es solo un `source_type='watchlist'` y `slug='watchlist'`. Todas las listas (watchlist incluida) llegan `enabled=False`; el user activa lo que le interese |
 | `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `tmdb_type` (`movie`), `letterboxd_avg_rating` (nullable), `last_resolved_at` | Caché de la resolución HTML → TMDB ID; global, no por user. Rating Letterboxd persistido si la ficha lo expone |
 | `list_items` | `(list_id, tmdb_id)` (PK), `position`, `added_at`, `last_seen_at`, `pending_removal_count` | `pending_removal_count` para anti-flap (ver [`sync-strategy.md`](sync-strategy.md)) |
-| `sublists` | `id` (PK), `user_id` (FK nullable), `parent_list_id` (FK nullable), `parent_combined_kind` (enum nullable), `slug`, `name`, `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `added_after`, `added_before`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Vista servida con cap/filtros/rotación. Exactamente uno de `parent_list_id` o `parent_combined_kind` debe estar set. Slug único por `(user_id, slug)` o por `(parent_combined_kind, slug)` |
-| `sublist_items` | `(sublist_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas en una sublista. FIFO por `served_since` durante la rotación |
+| `custom_lists` | `id` (PK), `slug` (unique global), `name`, `op` (`union`/`intersection`), `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `added_after`, `added_before`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Lista derivada multi-source con políticas (cap, filtros, rotación). Servida en `/lists/<slug>/` |
+| `custom_list_sources` | `(custom_list_id, list_id, role)` (PK) | `role`: `include` o `subtract`. Una custom list puede tener N includes (combinados por `op`) y N subtracts (siempre se restan) |
+| `custom_list_excluded_watchers` | `(custom_list_id, user_id)` (PK) | Films que estos users ya vieron se restan del resultado final |
+| `custom_list_items` | `(custom_list_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas. FIFO por `served_since` durante la rotación |
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
-| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos) |
+| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos). **No expuesto en UI** — los logs reemplazaron este feed |
 
 > No hay tabla global de settings. Los **defaults** de todos los intervalos viven en env vars (inmutables tras arranque); los **overrides** viven en columnas nullable de `users` y `lists`. El ritmo del rotation worker (`ROTATION_TICK_INTERVAL`) y `FLAP_CONFIRM_SCRAPES` también vienen de env, este último con override por lista.
 
@@ -33,59 +35,45 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 - Cada `list` pertenece a exactamente un `user`.
 - `films` es **global por `tmdb_id`**: dos users que tienen la misma peli comparten la fila.
 - `watched_films` es **por `(user_id, tmdb_id)`**: cada user tiene su propio set de vistos.
-- Las **listas combinadas crudas** (`/all/watchlist/union/`, `/intersection/`, `/union-unwatched/`) no son filas — son queries virtuales sobre `list_items` y `watched_films`.
-- Las **sublistas** (`sublists`) son la única "vista servida" con políticas (cap, filtros, rotación). Pueden tener como parent:
-  - Una lista o watchlist concreta (`parent_list_id`) → URL bajo `/<user>/<slug>/`.
-  - Una combinada virtual (`parent_combined_kind`) → URL bajo `/all/<slug>/`.
+- Las **custom lists** son **globales** (no `user_id`). Su URL es `/lists/<slug>/` y combinan listas de cualquier user.
 
-## Listas combinadas (virtuales)
+## Custom lists: resolución
 
-Solo sobre **watchlist** en MVP (el único concepto común garantizado entre users). Universo = todos los `users` registrados.
+Las custom lists no son views virtuales — sus items se materializan en `custom_list_items` (igual que antes las sublists). El cómputo del **pool elegible** se hace al crear, editar o rotar:
 
-```sql
--- /all/watchlist/union/
-SELECT DISTINCT li.tmdb_id, MIN(li.position) AS position
-FROM list_items li
-JOIN lists l ON li.list_id = l.id
-WHERE l.source_type = 'watchlist'
-GROUP BY li.tmdb_id
-ORDER BY position;
-
--- /all/watchlist/intersection/
-SELECT li.tmdb_id
-FROM list_items li
-JOIN lists l ON li.list_id = l.id
-WHERE l.source_type = 'watchlist'
-GROUP BY li.tmdb_id
-HAVING COUNT(DISTINCT l.user_id) = (SELECT COUNT(*) FROM users);
-
--- /all/watchlist/union-unwatched/
-SELECT DISTINCT li.tmdb_id
-FROM list_items li
-JOIN lists l ON li.list_id = l.id
-WHERE l.source_type = 'watchlist'
-  AND li.tmdb_id NOT IN (SELECT tmdb_id FROM watched_films);
+```text
+includes  = union of list_items where list_id in (sources WHERE role='include')   if op=union
+            intersection                                                          if op=intersection
+subtracts = union of list_items where list_id in (sources WHERE role='subtract')
+watched   = union of watched_films.tmdb_id where user_id in excluded_watchers
+universe  = (includes - subtracts - watched)
+pool      = universe filtered by min_rating, max_rating, min_year, max_year, added_after, added_before
 ```
 
-- Las queries se resuelven **al servir**, leyendo el estado actual de las tablas (que sí es autoritativo y estable). No hay materialización ni caché adicional — la DB interna ya garantiza que `list_items` solo cambia tras un scrape transaccional exitoso.
-- Si el coste de las queries empieza a notarse en producción, se materializan en una tabla `combined_watchlist_<combo>` que se recalcula tras cada scrape de watchlist. **Decisión TBD** según motor.
+Casos comunes:
+
+| Quiero | Sources include | op | Subtract | Excluded watchers |
+|---|---|---|---|---|
+| Watchlist combinada de varios users | watchlists de N users | union | — | — |
+| Pelis que todos quieren ver | watchlists de N users | intersection | — | — |
+| Pendientes en común (combinada menos vistas por cualquiera) | watchlists de N users | union | — | los N users |
+| Lo de mi pareja que yo no he visto | watchlist de pareja | union | — | yo |
+| Mi lista "2010s" menos lo que ya está en mi watchlist | lista "2010s" | union | mi watchlist | — |
 
 ## Reservas en el espacio de URLs
 
-Las URLs servidas son `/<user>/<slug>/`, `/<user>/watchlist/`, `/all/watchlist/<combo>/` y `/all/<sublist-slug>/`. Hay que evitar choques.
+Las URLs servidas son:
+- `/<user>/<slug>/` — lista cruda del user
+- `/<user>/watchlist/` — watchlist del user (alias de `/<user>/watchlist/`)
+- `/lists/<slug>/` — custom list
 
-**Reservados como `<user>`** (no se aceptan como `letterboxd_username` en la app):
-- `all`, `api`, `admin`, `static`, `health`, `_`.
+Hay que evitar choques.
+
+**Reservados como `<username>`** (no se aceptan como `letterboxd_username` en la app):
+- `all`, `api`, `admin`, `static`, `health`, `_`, `lists`.
 
 **Reservados como `<slug>` bajo `/<user>/`**:
 - `watchlist` — siempre apunta a la watchlist parent del user.
-
-**Reservados como `<slug>` bajo `/all/`**:
-- `watchlist` — namespace de las 3 combinadas crudas (`/all/watchlist/union/`, etc.). No es válido como slug de sublista bajo `/all/`.
-
-**Espacio de slugs compartido por user**: dentro de un mismo user, listas parent y sublistas comparten namespace de slugs. Si el user tiene una lista parent `watchlist-2010s`, no puede crear una sublista con el mismo slug. La UI valida en el momento de guardar.
-
-**Decisión TBD**: qué hacer si un user tiene una lista custom llamada literalmente `watchlist` en Letterboxd. Sugerencia: añadir sufijo numérico (`watchlist-2`) al servir y al guardar en `lists.slug`. Documentar al implementar.
 
 ## Resolución de slugs ↔ TMDB ID
 
@@ -99,3 +87,4 @@ Las URLs servidas son `/<user>/<slug>/`, `/<user>/watchlist/`, `/all/watchlist/<
 - Selectores HTML que alimentan `films`, `list_items`, `lists`: [`letterboxd-lists.md`](letterboxd-lists.md).
 - Eventos que alimentan `viewing_logs` y `watched_films`: [`letterboxd-rss.md`](letterboxd-rss.md).
 - Formato del JSON que servimos leyendo de estas tablas: [`radarr-custom-list.md`](radarr-custom-list.md).
+- Pantallas que tocan cada tabla: [`ui-features.md`](ui-features.md).

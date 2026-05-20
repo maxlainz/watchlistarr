@@ -13,7 +13,7 @@ watchlistarr **no** habla con la API de Radarr. La integración es al revés: Ra
    - **Monitor**: `Movie Only` / `None`.
    - **Search on Add**: a gusto del usuario.
    - **Minimum Availability**, **Quality Profile**, **Root Folder**: a gusto del usuario.
-   - **List URL**: `http://<host-watchlistarr>:<port>/<user>/<slug>/` para listas personales, `/<user>/watchlist/` para una watchlist, o `/all/watchlist/<combo>/` para combinadas. Ver sección "URL routing en watchlistarr".
+   - **List URL**: `http://<host-watchlistarr>:<port>/<user>/<slug>/` para listas personales del user, `/<user>/watchlist/` para la watchlist del user (si está enabled), o `/lists/<slug>/` para custom lists multi-source. Ver sección "URL routing en watchlistarr".
    - **Sync Interval**: lo decide Radarr (default histórico 6 h; mínimo aceptable ~1 h). watchlistarr **no controla** la frecuencia.
 3. **Test** → debería decir OK. **Save**.
 
@@ -23,31 +23,26 @@ Multi-user en una sola instancia. Cada URL apunta a una "vista" servida desde DB
 
 | URL | Significado |
 |---|---|
-| `/<user>/<list-slug>/` | Lista parent del user, **cruda** (sin cap, sin rotación) |
-| `/<user>/watchlist/` | Watchlist personal del user, **cruda** |
-| `/<user>/<sublist-slug>/` | **Sublista** del user con filtros / cap / rotación aplicados |
-| `/all/watchlist/union/` | Combinada cruda: pelis en alguna watchlist |
-| `/all/watchlist/intersection/` | Combinada cruda: pelis en TODAS las watchlists |
-| `/all/watchlist/union-unwatched/` | Combinada cruda: union excluyendo vistas por alguien |
-| `/all/<sublist-slug>/` | **Sublista combinada** con filtros / cap / rotación sobre una combinada |
+| `/<user>/<list-slug>/` | Lista del user, **cruda** (sin cap, sin rotación). Solo se sirve si `lists.enabled=True` |
+| `/<user>/watchlist/` | Watchlist del user, **cruda**. Solo si la fila correspondiente está enabled |
+| `/lists/<slug>/` | **Custom list** multi-source (sources + op + subtract + excluded_watchers + filtros + cap + rotación) |
 
 **Reservas**:
-- Como `<user>`: `all`, `api`, `admin`, `static`, `health`.
-- Como `<slug>` bajo `/<user>/`: `watchlist`.
-- Como `<slug>` bajo `/all/`: `watchlist` (namespace de las combinadas crudas).
-- El espacio de slugs bajo un user es compartido entre listas parent y sublistas — slug único por user.
+- Como `<username>`: `all`, `api`, `admin`, `static`, `health`, `_`, `lists`.
+- Como `<slug>` bajo `/<user>/`: `watchlist` (siempre apunta a su watchlist).
+- Los slugs de custom lists viven en el namespace global `/lists/<slug>/` y son únicos en toda la app.
 
 Detalles del modelo y de cuándo se actualiza cada vista: [`data-model.md`](data-model.md) y [`sync-strategy.md`](sync-strategy.md).
 
-## Listas combinadas (`/all/`)
+## Custom lists (`/lists/<slug>/`)
 
-Sirven el mismo formato JSON que las individuales. Cada item es una película con `tmdb_id` único — la unión deduplica por TMDB ID, no por slug. El sort y los filtros aplicados son los de la combinación, no los de las watchlists subyacentes.
+Sirven el mismo formato JSON que las individuales. Cada item es una película con `tmdb_id` único — la combinación deduplica por TMDB ID, no por slug.
 
-- `union`: aparece si está en al menos una watchlist.
-- `intersection`: aparece si está en TODAS las watchlists.
-- `union-unwatched`: union, excluyendo pelis ya vistas por al menos un user (caso "noche de cine en grupo" — si alguien ya la vio, fuera).
+Su contenido se materializa en la tabla `custom_list_items` y se recalcula:
+- al guardar el editor (drop items que ya no califican + rellenar hasta `max_items`),
+- en cada tick del rotation worker (si `rotation_enabled=True`).
 
-Detalles del modelo: [`data-model.md`](data-model.md). Detalles del sync (cuándo se recalcula, anti-flap): [`sync-strategy.md`](sync-strategy.md).
+Las viejas combinadas predefinidas (`/all/watchlist/union/`, `/all/watchlist/intersection/`, `/all/watchlist/union-unwatched/`) **ya no existen** — devuelven 404. Se reemplazaron por custom lists multi-source equivalentes (ver [`data-model.md`](data-model.md#custom-lists-resolución) para los casos típicos).
 
 ## Formato JSON que watchlistarr debe devolver
 

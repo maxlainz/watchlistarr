@@ -9,9 +9,6 @@ from watchlistarr.models.enums import SourceType, SyncStatus
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
 from watchlistarr.services.letterboxd.client import LetterboxdClient
-from watchlistarr.services.scrape.discovery import discover_lists
-from watchlistarr.services.scrape.films_backstop import backstop_films_for_user
-from watchlistarr.services.scrape.watchlist import sync_watchlist_full
 
 logger = structlog.get_logger(__name__)
 
@@ -63,7 +60,7 @@ async def ensure_watchlist_row(session: AsyncSession, user: User) -> ListModel:
         source_type=SourceType.WATCHLIST,
         slug="watchlist",
         name="Watchlist",
-        enabled=True,
+        enabled=False,
         last_sync_status=SyncStatus.NEVER,
     )
     session.add(row)
@@ -71,10 +68,3 @@ async def ensure_watchlist_row(session: AsyncSession, user: User) -> ListModel:
     return row
 
 
-async def run_initial_for_user(session: AsyncSession, client: LetterboxdClient, user: User) -> None:
-    logger.info("initial_run.start", user_id=user.id, username=user.letterboxd_username)
-    watchlist_row = await ensure_watchlist_row(session, user)
-    await discover_lists(session, client, user)
-    await sync_watchlist_full(session, client, watchlist_row)
-    await backstop_films_for_user(session, client, user)
-    logger.info("initial_run.done", user_id=user.id)

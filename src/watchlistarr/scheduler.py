@@ -15,8 +15,8 @@ from watchlistarr.models.enums import SourceType
 from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
 from watchlistarr.services import intervals
+from watchlistarr.services.custom_lists import rotation_tick
 from watchlistarr.services.letterboxd.client import LetterboxdClient
-from watchlistarr.services.rotation import rotation_tick
 from watchlistarr.services.scrape.discovery import discover_lists
 from watchlistarr.services.scrape.films_backstop import backstop_films_for_user
 from watchlistarr.services.scrape.lists import sync_list_full, sync_list_incremental
@@ -71,6 +71,7 @@ class JobScheduler:
         async with self._factory() as session:
             users = list((await session.execute(select(User))).scalars().all())
             lists_by_user = await _enabled_lists_by_user(session, [u.id for u in users])
+            watchlist_enabled = await _watchlist_enabled_by_user(session, [u.id for u in users])
 
         self._scheduler.remove_all_jobs()
 
@@ -93,22 +94,6 @@ class JobScheduler:
                 uid,
             )
             self._add(
-                f"watchlist-incr-{uid}",
-                _run_watchlist_incremental,
-                _seconds(intervals.user_watchlist_incremental(user, env)),
-                self._factory,
-                env,
-                uid,
-            )
-            self._add(
-                f"watchlist-full-{uid}",
-                _run_watchlist_full,
-                _seconds(intervals.user_watchlist_full(user, env)),
-                self._factory,
-                env,
-                uid,
-            )
-            self._add(
                 f"discovery-{uid}",
                 _run_discovery,
                 _seconds(intervals.user_discovery(user, env)),
@@ -124,6 +109,23 @@ class JobScheduler:
                 env,
                 uid,
             )
+            if watchlist_enabled.get(uid, False):
+                self._add(
+                    f"watchlist-incr-{uid}",
+                    _run_watchlist_incremental,
+                    _seconds(intervals.user_watchlist_incremental(user, env)),
+                    self._factory,
+                    env,
+                    uid,
+                )
+                self._add(
+                    f"watchlist-full-{uid}",
+                    _run_watchlist_full,
+                    _seconds(intervals.user_watchlist_full(user, env)),
+                    self._factory,
+                    env,
+                    uid,
+                )
             for lst in lists_by_user.get(uid, []):
                 self._add(
                     f"list-incr-{lst.id}",
@@ -184,6 +186,27 @@ async def _enabled_lists_by_user(
     for lst in rows:
         result.setdefault(lst.user_id, []).append(lst)
     return result
+
+
+async def _watchlist_enabled_by_user(
+    session: AsyncSession, user_ids: list[int]
+) -> dict[int, bool]:
+    if not user_ids:
+        return {}
+    rows = (
+        (
+            await session.execute(
+                select(ListModel).where(
+                    ListModel.user_id.in_(user_ids),
+                    ListModel.source_type == SourceType.WATCHLIST,
+                    ListModel.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {lst.user_id: True for lst in rows}
 
 
 async def _with_user(

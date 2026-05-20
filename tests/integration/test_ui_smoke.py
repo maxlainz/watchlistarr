@@ -30,6 +30,7 @@ async def _seed_alice_with_list(factory: async_sessionmaker[AsyncSession]) -> No
                     source_type=SourceType.WATCHLIST,
                     slug="watchlist",
                     name="WL",
+                    enabled=True,
                 ),
                 ListModel(
                     user_id=alice.id,
@@ -37,6 +38,7 @@ async def _seed_alice_with_list(factory: async_sessionmaker[AsyncSession]) -> No
                     letterboxd_list_id="42",
                     slug="favs",
                     name="Favs",
+                    enabled=True,
                 ),
             ]
         )
@@ -66,11 +68,32 @@ def test_users_list_renders(app: FastAPI) -> None:
     assert "Users" in response.text
 
 
-def test_combined_renders(app: FastAPI) -> None:
+def test_lists_view_renders(app: FastAPI) -> None:
     with TestClient(app) as client:
-        response = client.get("/combined")
+        response = client.get("/lists-view")
     assert response.status_code == 200
-    assert "Combinadas" in response.text
+    assert "Lists" in response.text
+
+
+def test_custom_lists_index_renders(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.get("/custom-lists")
+    assert response.status_code == 200
+    assert "Custom Lists" in response.text
+
+
+def test_custom_lists_new_form_renders(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.get("/custom-lists/new")
+    assert response.status_code == 200
+    assert "New custom list" in response.text
+
+
+def test_activity_renders(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.get("/activity")
+    assert response.status_code == 200
+    assert "Activity" in response.text
 
 
 def test_settings_route_gone(app: FastAPI) -> None:
@@ -79,35 +102,32 @@ def test_settings_route_gone(app: FastAPI) -> None:
     assert response.status_code == 404
 
 
-def test_activity_renders(app: FastAPI) -> None:
-    with TestClient(app) as client:
-        response = client.get("/activity")
-    assert response.status_code == 200
-    assert "Actividad" in response.text
-
-
-def test_endpoints_renders(app: FastAPI) -> None:
+def test_endpoints_route_gone(app: FastAPI) -> None:
     with TestClient(app) as client:
         response = client.get("/endpoints")
-    assert response.status_code == 200
-    assert "Endpoints" in response.text
+    assert response.status_code == 404
 
 
-def test_combined_new_sublist_form_renders(app: FastAPI) -> None:
+def test_combined_route_gone(app: FastAPI) -> None:
     with TestClient(app) as client:
-        response = client.get("/combined/sublists/new")
-    assert response.status_code == 200
-    assert "Nueva sublista combinada" in response.text
+        response = client.get("/combined")
+    assert response.status_code == 404
 
 
-def test_user_intervals_get_and_post(seeded_app: FastAPI) -> None:
+def test_user_detail_renders_with_lists(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        page = client.get("/users/alice/intervals")
-        assert page.status_code == 200
-        assert "rss_interval" in page.text
-        assert "(default)" in page.text
+        response = client.get("/users/alice")
+    assert response.status_code == 200
+    assert "Discovered lists" in response.text
+    # Watchlist and Favs both appear in the discovered table
+    assert "Watchlist" in response.text
+    assert "Favs" in response.text
+    # Advanced intervals collapsible is present
+    assert "Advanced" in response.text
 
-        # POST con un override y dejar el resto en blanco → resto vuelve a NULL.
+
+def test_user_intervals_post(seeded_app: FastAPI) -> None:
+    with TestClient(seeded_app) as client:
         resp = client.post(
             "/users/alice/intervals",
             data={
@@ -121,24 +141,14 @@ def test_user_intervals_get_and_post(seeded_app: FastAPI) -> None:
         )
         assert resp.status_code == 303
 
-        after = client.get("/users/alice/intervals")
+        after = client.get("/users/alice")
         assert 'value="300"' in after.text
 
 
-def test_user_intervals_404_unknown_user(seeded_app: FastAPI) -> None:
+def test_list_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
-        assert client.get("/users/nobody/intervals").status_code == 404
-
-
-def test_list_settings_get_and_post(seeded_app: FastAPI) -> None:
-    with TestClient(seeded_app) as client:
-        page = client.get("/users/alice/lists/favs/settings")
-        assert page.status_code == 200
-        assert "lists_incremental_interval" in page.text
-        assert "flap_confirm_scrapes" in page.text
-
         resp = client.post(
-            "/users/alice/lists/favs/settings",
+            "/lists-view/alice/favs/settings",
             data={
                 "lists_incremental_interval": "120",
                 "lists_full_interval": "",
@@ -148,11 +158,6 @@ def test_list_settings_get_and_post(seeded_app: FastAPI) -> None:
         )
         assert resp.status_code == 303
 
-        after = client.get("/users/alice/lists/favs/settings")
+        after = client.get("/lists-view")
         assert 'value="120"' in after.text
         assert 'value="5"' in after.text
-
-
-def test_list_settings_404_unknown_list(seeded_app: FastAPI) -> None:
-    with TestClient(seeded_app) as client:
-        assert client.get("/users/alice/lists/no-such/settings").status_code == 404
