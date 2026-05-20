@@ -35,14 +35,6 @@ async def dashboard(
         )
     ).scalar_one()
 
-    last_success = (
-        await session.execute(
-            select(func.max(ScrapeRun.ended_at)).where(
-                ScrapeRun.status == ScrapeStatus.SUCCESS
-            )
-        )
-    ).scalar_one()
-
     one_hour_ago = utcnow() - timedelta(hours=1)
     recent_errors = (
         await session.execute(
@@ -59,7 +51,6 @@ async def dashboard(
             "users_count": users_count,
             "lists_count": lists_count,
             "custom_count": custom_count,
-            "last_success": last_success,
             "recent_errors": recent_errors,
         },
     )

@@ -4,7 +4,7 @@
 <h1>Custom Lists</h1>
 <p><small>Lists you assemble from one or more imported lists, optionally subtracting other lists or films watched by some users.</small></p>
 
-<p><a href="/custom-lists/new" role="button">+ New custom list</a></p>
+<p><a href="/custom-lists/new" role="button" class="icon" title="New custom list">➕</a></p>
 
 {% if rows %}
   <table>
@@ -13,7 +13,7 @@
         <th>Name</th>
         <th>Slug</th>
         <th>Sources</th>
-        <th>Items served</th>
+        <th>Items</th>
         <th>Radarr URL</th>
         <th></th>
       </tr>
@@ -24,14 +24,15 @@
           <td>{{ row.custom_list.name }}</td>
           <td><code>{{ row.custom_list.slug }}</code></td>
           <td><small>{{ row.summary }}</small></td>
-          <td>{{ row.items }}</td>
-          <td><code id="url-{{ row.custom_list.id }}">{{ row.url }}</code>
-            <button type="button" onclick="navigator.clipboard.writeText(window.location.origin + document.getElementById('url-{{ row.custom_list.id }}').textContent)">Copy</button>
+          <td>{{ row.items_count }}</td>
+          <td>
+            <code id="url-{{ row.custom_list.id }}">{{ row.url }}</code>
+            <button type="button" class="icon secondary" title="Copy URL" onclick="navigator.clipboard.writeText(window.location.origin + document.getElementById('url-{{ row.custom_list.id }}').textContent)">📋</button>
           </td>
           <td>
-            <a href="/custom-lists/{{ row.custom_list.slug }}/edit" role="button" class="secondary">Edit</a>
+            <a href="/custom-lists/{{ row.custom_list.slug }}/edit" role="button" class="icon secondary" title="Edit">✏</a>
             <form method="post" action="/custom-lists/{{ row.custom_list.slug }}/delete" style="display:inline">
-              <button type="submit" class="secondary" onclick="return confirm('Delete custom list {{ row.custom_list.name }}?')">Delete</button>
+              <button type="submit" class="icon secondary" title="Delete" onclick="return confirm('Delete custom list {{ row.custom_list.name }}?')">🗑</button>
             </form>
           </td>
         </tr>

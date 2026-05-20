@@ -122,27 +122,16 @@ def test_user_detail_renders_with_lists(seeded_app: FastAPI) -> None:
     # Watchlist and Favs both appear in the discovered table
     assert "Watchlist" in response.text
     assert "Favs" in response.text
-    # Advanced intervals collapsible is present
-    assert "Advanced" in response.text
 
 
-def test_user_intervals_post(seeded_app: FastAPI) -> None:
+def test_user_intervals_route_gone(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
         resp = client.post(
             "/users/alice/intervals",
-            data={
-                "rss_interval": "300",
-                "watchlist_incremental_interval": "",
-                "watchlist_full_interval": "",
-                "films_backstop_interval": "",
-                "discovery_interval": "",
-            },
+            data={"rss_interval": "300"},
             follow_redirects=False,
         )
-        assert resp.status_code == 303
-
-        after = client.get("/users/alice")
-        assert 'value="300"' in after.text
+        assert resp.status_code == 404
 
 
 def test_list_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
@@ -150,8 +139,8 @@ def test_list_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
         resp = client.post(
             "/lists-view/alice/favs/settings",
             data={
-                "lists_incremental_interval": "120",
-                "lists_full_interval": "",
+                "incremental_interval": "6",
+                "full_interval": "",
                 "flap_confirm_scrapes": "5",
             },
             follow_redirects=False,
@@ -159,5 +148,23 @@ def test_list_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
         assert resp.status_code == 303
 
         after = client.get("/lists-view")
-        assert 'value="120"' in after.text
+        assert 'value="6"' in after.text
         assert 'value="5"' in after.text
+
+
+def test_watchlist_settings_post_via_lists_view(seeded_app: FastAPI) -> None:
+    with TestClient(seeded_app) as client:
+        resp = client.post(
+            "/lists-view/alice/watchlist/settings",
+            data={
+                "incremental_interval": "2",
+                "full_interval": "48",
+                "flap_confirm_scrapes": "",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        after = client.get("/lists-view")
+        assert 'value="2"' in after.text
+        assert 'value="48"' in after.text

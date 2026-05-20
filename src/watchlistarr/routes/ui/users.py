@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
 from typing import Annotated
 
 import structlog
@@ -26,17 +25,6 @@ from watchlistarr.services.scrape.initial_run import (
     ensure_watchlist_row,
     validate_username,
 )
-
-
-def _td_seconds(td: timedelta | None) -> int | None:
-    return None if td is None else int(td.total_seconds())
-
-
-def _td_from_form(seconds: int | None) -> timedelta | None:
-    if seconds is None or seconds <= 0:
-        return None
-    return timedelta(seconds=seconds)
-
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/users")
@@ -208,33 +196,12 @@ async def user_detail(
         ordered.append(watchlist)
     ordered.extend(public_lists)
 
-    env = get_settings()
-    advanced_user = {
-        "rss_interval": (_td_seconds(user.rss_interval), int(env.rss_interval.total_seconds())),
-        "watchlist_incremental_interval": (
-            _td_seconds(user.watchlist_incremental_interval),
-            int(env.watchlist_incremental_interval.total_seconds()),
-        ),
-        "watchlist_full_interval": (
-            _td_seconds(user.watchlist_full_interval),
-            int(env.watchlist_full_interval.total_seconds()),
-        ),
-        "films_backstop_interval": (
-            _td_seconds(user.films_backstop_interval),
-            int(env.films_backstop_interval.total_seconds()),
-        ),
-        "discovery_interval": (
-            _td_seconds(user.discovery_interval),
-            int(env.discovery_interval.total_seconds()),
-        ),
-    }
     return templates.TemplateResponse(
         request,
         "users/detail.html",
         {
             "user": user,
             "lists": ordered,
-            "advanced_user": advanced_user,
         },
     )
 
@@ -255,34 +222,6 @@ async def toggle_list(
     if lst is None or lst.user_id != user.id:
         raise HTTPException(status_code=404)
     lst.enabled = not lst.enabled
-    await session.commit()
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler is not None:
-        await scheduler.sync_jobs()
-    return RedirectResponse(url=f"/users/{username}", status_code=303)
-
-
-@router.post("/{username}/intervals")
-async def update_user_intervals(
-    request: Request,
-    username: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
-    rss_interval: Annotated[int | None, Form()] = None,
-    watchlist_incremental_interval: Annotated[int | None, Form()] = None,
-    watchlist_full_interval: Annotated[int | None, Form()] = None,
-    films_backstop_interval: Annotated[int | None, Form()] = None,
-    discovery_interval: Annotated[int | None, Form()] = None,
-) -> RedirectResponse:
-    user = (
-        await session.execute(select(User).where(User.letterboxd_username == username))
-    ).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404)
-    user.rss_interval = _td_from_form(rss_interval)
-    user.watchlist_incremental_interval = _td_from_form(watchlist_incremental_interval)
-    user.watchlist_full_interval = _td_from_form(watchlist_full_interval)
-    user.films_backstop_interval = _td_from_form(films_backstop_interval)
-    user.discovery_interval = _td_from_form(discovery_interval)
     await session.commit()
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:

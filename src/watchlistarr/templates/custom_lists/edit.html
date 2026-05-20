@@ -2,7 +2,7 @@
 {% block title %}{{ "Edit" if custom_list else "New" }} custom list · watchlistarr{% endblock %}
 {% block content %}
 <h1>{{ "Edit custom list: " ~ custom_list.name if custom_list else "New custom list" }}</h1>
-<p><a href="/custom-lists">← back to custom lists</a></p>
+<p><a href="/custom-lists" role="button" class="icon secondary" title="Back to custom lists">←</a></p>
 
 <form
   method="post"
@@ -86,11 +86,13 @@
     <small id="pool-preview">Pool: hit "Refresh preview" to count eligible films.</small>
     <br>
     <button type="button"
+            class="icon secondary"
+            title="Refresh preview"
             hx-post="/custom-lists/preview"
             hx-include="closest form"
             hx-target="#pool-preview"
             hx-swap="outerHTML">
-      Refresh preview
+      🔄
     </button>
   </fieldset>
 
@@ -132,10 +134,13 @@
       Enable rotation
     </label>
     <label>Batch size (films swapped each rotation)
-      <input name="rotation_batch_size" type="number" min="1" value="{{ custom_list.rotation_batch_size if custom_list else 1 }}">
+      <input name="rotation_batch_size" type="number" min="1" step="1" value="{{ custom_list.rotation_batch_size if custom_list else 1 }}">
+    </label>
+    <label>Rotation interval (hours)
+      <input name="rotation_interval" type="number" min="1" step="1" value="{{ (custom_list.rotation_interval.total_seconds() // 3600)|int if custom_list and custom_list.rotation_interval else 1 }}">
     </label>
   </fieldset>
 
-  <button type="submit">{{ "Save changes" if custom_list else "Create" }}</button>
+  <button type="submit" class="icon" title="{{ 'Save changes' if custom_list else 'Create' }}">{{ "💾" if custom_list else "➕" }}</button>
 </form>
 {% endblock %}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -18,18 +19,16 @@ from watchlistarr.routes.ui import templates
 router = APIRouter()
 
 
-def _td_seconds(td: object | None) -> int | None:
+def _td_hours(td: timedelta | None) -> int | None:
     if td is None:
         return None
-    return int(td.total_seconds())  # type: ignore[attr-defined]
+    return int(td.total_seconds() // 3600)
 
 
-def _td_from_form(seconds: int | None) -> object | None:
-    if seconds is None or seconds <= 0:
+def _td_from_hours(hours: int | None) -> timedelta | None:
+    if hours is None or hours <= 0:
         return None
-    from datetime import timedelta
-
-    return timedelta(seconds=seconds)
+    return timedelta(hours=hours)
 
 
 def _int_from_form(value: int | None) -> int | None:
@@ -73,26 +72,50 @@ async def lists_view(
                     select(func.count(ListItem.list_id)).where(ListItem.list_id == lst.id)
                 )
             ).scalar_one()
+            is_watchlist = lst.source_type is SourceType.WATCHLIST
+            if is_watchlist:
+                advanced = {
+                    "Incremental interval (hours)": {
+                        "name": "incremental_interval",
+                        "value": _td_hours(user.watchlist_incremental_interval),
+                        "default": _td_hours(env.watchlist_incremental_interval),
+                    },
+                    "Full interval (hours)": {
+                        "name": "full_interval",
+                        "value": _td_hours(user.watchlist_full_interval),
+                        "default": _td_hours(env.watchlist_full_interval),
+                    },
+                    "Flap confirm scrapes": {
+                        "name": "flap_confirm_scrapes",
+                        "value": lst.flap_confirm_scrapes,
+                        "default": env.flap_confirm_scrapes,
+                    },
+                }
+            else:
+                advanced = {
+                    "Incremental interval (hours)": {
+                        "name": "incremental_interval",
+                        "value": _td_hours(lst.lists_incremental_interval),
+                        "default": _td_hours(env.lists_incremental_interval),
+                    },
+                    "Full interval (hours)": {
+                        "name": "full_interval",
+                        "value": _td_hours(lst.lists_full_interval),
+                        "default": _td_hours(env.lists_full_interval),
+                    },
+                    "Flap confirm scrapes": {
+                        "name": "flap_confirm_scrapes",
+                        "value": lst.flap_confirm_scrapes,
+                        "default": env.flap_confirm_scrapes,
+                    },
+                }
             rows.append(
                 {
                     "list": lst,
-                    "items": items_count,
+                    "items_count": items_count,
                     "url": _radarr_url(user, lst),
-                    "is_watchlist": lst.source_type is SourceType.WATCHLIST,
-                    "advanced": {
-                        "lists_incremental_interval": (
-                            _td_seconds(lst.lists_incremental_interval),
-                            int(env.lists_incremental_interval.total_seconds()),
-                        ),
-                        "lists_full_interval": (
-                            _td_seconds(lst.lists_full_interval),
-                            int(env.lists_full_interval.total_seconds()),
-                        ),
-                        "flap_confirm_scrapes": (
-                            lst.flap_confirm_scrapes,
-                            env.flap_confirm_scrapes,
-                        ),
-                    },
+                    "is_watchlist": is_watchlist,
+                    "advanced": advanced,
                 }
             )
         groups.append({"user": user, "rows": rows})
@@ -105,8 +128,8 @@ async def update_list_settings(
     username: str,
     list_slug: str,
     session: Annotated[AsyncSession, Depends(get_session)],
-    lists_incremental_interval: Annotated[int | None, Form()] = None,
-    lists_full_interval: Annotated[int | None, Form()] = None,
+    incremental_interval: Annotated[int | None, Form()] = None,
+    full_interval: Annotated[int | None, Form()] = None,
     flap_confirm_scrapes: Annotated[int | None, Form()] = None,
 ) -> RedirectResponse:
     user = (
@@ -121,8 +144,12 @@ async def update_list_settings(
     ).scalar_one_or_none()
     if lst is None:
         raise HTTPException(status_code=404)
-    lst.lists_incremental_interval = _td_from_form(lists_incremental_interval)  # type: ignore[assignment]
-    lst.lists_full_interval = _td_from_form(lists_full_interval)  # type: ignore[assignment]
+    if lst.source_type is SourceType.WATCHLIST:
+        user.watchlist_incremental_interval = _td_from_hours(incremental_interval)
+        user.watchlist_full_interval = _td_from_hours(full_interval)
+    else:
+        lst.lists_incremental_interval = _td_from_hours(incremental_interval)
+        lst.lists_full_interval = _td_from_hours(full_interval)
     lst.flap_confirm_scrapes = _int_from_form(flap_confirm_scrapes)
     await session.commit()
     scheduler = getattr(request.app.state, "scheduler", None)

@@ -29,12 +29,12 @@
               <td>
                 {{ "Watchlist" if row.is_watchlist else row.list.name }}
               </td>
-              <td>{{ row.items }}</td>
-              <td>{{ row.list.last_synced_at or "—" }}</td>
+              <td>{{ row.items_count }}</td>
+              <td>{{ row.list.last_synced_at|humandate }}</td>
               <td>{{ row.list.last_sync_status.value }}</td>
               <td><code id="url-{{ row.list.id }}">{{ row.url }}</code></td>
               <td>
-                <button type="button" onclick="navigator.clipboard.writeText(window.location.origin + document.getElementById('url-{{ row.list.id }}').textContent)">Copy</button>
+                <button type="button" class="icon secondary" title="Copy URL" onclick="navigator.clipboard.writeText(window.location.origin + document.getElementById('url-{{ row.list.id }}').textContent)">📋</button>
               </td>
             </tr>
             <tr>
@@ -42,19 +42,19 @@
                 <details>
                   <summary>⚙ Advanced</summary>
                   <form method="post" action="/lists-view/{{ group.user.letterboxd_username }}/{{ row.list.slug }}/settings">
-                    {% for key, pair in row.advanced.items() %}
-                      {% set override, default = pair %}
-                      <label>{{ key }}
+                    {% for label, field in row.advanced.items() %}
+                      <label>{{ label }}
                         <input
-                          name="{{ key }}"
+                          name="{{ field.name }}"
                           type="number"
                           min="1"
-                          value="{{ override if override is not none else '' }}"
-                          placeholder="{{ default }} (default)"
+                          step="1"
+                          value="{{ field.value if field.value is not none else '' }}"
+                          placeholder="{{ field.default }} (default)"
                         >
                       </label>
                     {% endfor %}
-                    <button type="submit">Save</button>
+                    <button type="submit" class="icon" title="Save">💾</button>
                   </form>
                 </details>
               </td>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Annotated
 
 import structlog
@@ -105,7 +106,7 @@ async def index(
             {
                 "custom_list": cl,
                 "summary": summary,
-                "items": items_count,
+                "items_count": items_count,
                 "url": f"/lists/{cl.slug}/",
             }
         )
@@ -198,6 +199,7 @@ async def create(
     max_year: Annotated[str, Form()] = "",
     rotation_enabled: Annotated[str, Form()] = "",
     rotation_batch_size: Annotated[int, Form()] = 1,
+    rotation_interval: Annotated[int, Form()] = 1,
 ) -> RedirectResponse:
     if not _slug_valid(slug):
         raise HTTPException(status_code=400, detail="invalid slug (lowercase alnum and -)")
@@ -226,6 +228,7 @@ async def create(
         max_year=_parse_optional_int(max_year),
         rotation_enabled=rotation_enabled == "on",
         rotation_batch_size=rotation_batch_size,
+        rotation_interval=timedelta(hours=rotation_interval) if rotation_interval > 0 else None,
     )
     session.add(cl)
     await session.flush()
@@ -314,6 +317,7 @@ async def update(
     max_year: Annotated[str, Form()] = "",
     rotation_enabled: Annotated[str, Form()] = "",
     rotation_batch_size: Annotated[int, Form()] = 1,
+    rotation_interval: Annotated[int, Form()] = 1,
 ) -> RedirectResponse:
     cl = (
         await session.execute(select(CustomList).where(CustomList.slug == slug))
@@ -338,6 +342,9 @@ async def update(
     cl.max_year = _parse_optional_int(max_year)
     cl.rotation_enabled = rotation_enabled == "on"
     cl.rotation_batch_size = rotation_batch_size
+    cl.rotation_interval = (
+        timedelta(hours=rotation_interval) if rotation_interval > 0 else None
+    )
 
     await _save_sources(session, cl, include_ids, subtract_ids)
     await _save_excluded_watchers(session, cl, excluded_user_ids)

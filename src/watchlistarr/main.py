@@ -10,6 +10,7 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -72,6 +73,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="watchlistarr", version=__version__, lifespan=lifespan)
+
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:

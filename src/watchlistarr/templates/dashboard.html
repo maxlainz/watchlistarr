@@ -28,15 +28,6 @@
   </article>
 </section>
 
-<article>
-  <header><small>Last successful scrape</small></header>
-  {% if last_success %}
-    <p><time>{{ last_success }}</time></p>
-  {% else %}
-    <p><em>No scrapes recorded yet.</em></p>
-  {% endif %}
-</article>
-
 {% if users_count == 0 %}
   <article>
     <p>No users registered yet.</p>
