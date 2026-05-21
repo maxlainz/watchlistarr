@@ -6,6 +6,33 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-21
+
+### Added
+- Custom lists: filtros relativos a hoy. `year_last_n` selecciona pelis
+  estrenadas en los últimos N años (`current_year - N + 1 .. current_year`)
+  y `added_last_n_days` filtra por fecha de adición a la lista de origen.
+  Se evalúan en cada servido a Radarr, así que la ventana se mueve sola.
+- Custom lists: nuevo `SortOrder.RATING_DESC` que ordena por la
+  valoración media en Letterboxd (descendente). Requiere ratings en DB;
+  el scraper de `film_page` ahora extrae el rating y hay un job
+  `rating_backfill` + script `scripts/backfill_ratings.py` para poblar
+  histórico.
+- Migración Alembic `0005_custom_lists_relative_filters` con las nuevas
+  columnas y el enum extendido.
+- Test de integración `tests/integration/test_rotation.py` que cubre
+  rotación con los nuevos sorts y filtros relativos.
+
+### Fixed
+- `SortOrder.LETTERBOXD`, `REVERSE` y `RANDOM` se ignoraban en la
+  selección final de items servida a Radarr (siempre caía a orden por
+  defecto). Ahora se respetan los tres modos.
+
+### Changed
+- Filtro de año en custom lists: se documenta que `year_from`/`year_to`
+  son absolutos y los nuevos `*_last_n` son relativos a hoy.
+- `scripts/smoke.py` cubre los nuevos filtros y el sort por rating.
+
 ## [1.1.0] - 2026-05-21
 
 ### Added
