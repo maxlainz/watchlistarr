@@ -27,6 +27,10 @@ uv run pytest -q && \
 uv run python scripts/smoke.py
 ```
 
+## Versionado
+
+Cortamos releases con tags `vX.Y.Z` desde `main`. SemVer + Conventional Commits → bump, doble bump (`pyproject.toml` + `__init__.py`) y entrada en `CHANGELOG.md` en el mismo commit `chore(release): vX.Y.Z`. Push del tag dispara build Docker multi-arch con tags `X.Y.Z` y `X.Y`. Detalles, tabla de mapping y procedimiento paso a paso: [`versioning.md`](versioning.md).
+
 ## Idioma
 
 - Documentación, comentarios (cuando existan) y mensajes de commit: español.

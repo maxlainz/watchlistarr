@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
     log_format: str = "plain"
     database_url: str = "sqlite+aiosqlite:///data/watchlistarr.db"
-    user_agent: str = "watchlistarr/0.1.0 (+https://github.com/maxlainz/watchlistarr)"
+    user_agent: str = "watchlistarr/1.0.0 (+https://github.com/maxlainz/watchlistarr)"
     letterboxd_offline: bool = False
 
     rss_interval: Duration = Field(default=timedelta(minutes=15))
