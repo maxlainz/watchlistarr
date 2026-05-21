@@ -6,6 +6,31 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-21
+
+### Fixed
+- `sqlite3.OperationalError: database is locked` en jobs solapados del scheduler.
+  Los scrapers mantenían una transacción de escritura abierta durante los fetches
+  HTTP a Letterboxd; con WAL solo hay un writer a la vez y el `busy_timeout=10s`
+  saltaba cuando dos jobs (p.ej. RSS + watchlist-full) intentaban escribir en
+  paralelo.
+
+### Changed
+- Refactor profundo de los scrapers a un patrón **fetch-first / write-last**: HTTP
+  y lecturas fuera de toda transacción, sesiones cortas solo para los upserts.
+  Afecta a `rss_watcher`, `films_backstop`, `watchlist`, `lists` y `discovery`.
+- `resolve_film` se sustituye por `resolve_films` (batch) que devuelve dataclasses
+  planas `ResolvedFilm`, seguras de cruzar boundaries de sesión.
+- `with_scrape_audit` envuelve una corrutina (en vez de inyectar sesión al body);
+  los scrapers gestionan sus propias mini-sesiones internamente.
+- `scheduler._with_user` / `_with_list` y `onboarding._initial_run` se adaptan a
+  la nueva firma `(factory, client, ...)`.
+
+### Added
+- Test de regresión `tests/integration/test_scrape_concurrency.py` que lanza
+  `poll_rss_for_user` y `backstop_films_for_user` en paralelo con `asyncio.gather`
+  para confirmar que no se reproduce el lock.
+
 ## [1.0.1] - 2026-05-21
 
 ### Fixed
