@@ -89,7 +89,7 @@ watchlistarr exposes three kinds of URLs you can hand to Radarr:
 
 In Radarr:
 
-1. **Settings → Import Lists → Add (+) → Custom List**
+1. **Settings → Import Lists → Add (+)** → pick either **Custom Lists** or **StevenLu Custom**. Both providers work against the same URL — watchlistarr serves a JSON payload that includes both the TMDB `id` (read by Custom Lists) and the `imdb_id` (read by StevenLu Custom). Use Custom Lists if you want the fastest resolution; use StevenLu Custom if you prefer matching by IMDb.
 2. **Name**: whatever you like.
 3. **List URL**: one of the URLs above (use the Copy button in watchlistarr's UI).
 4. **Enable Automatic Add**: `Yes` (otherwise Radarr only lists candidates instead of importing).

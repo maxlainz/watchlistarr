@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 class RadarrItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: int
     tmdb_id: int
     title: str | None = None
     imdb_id: str | None = None

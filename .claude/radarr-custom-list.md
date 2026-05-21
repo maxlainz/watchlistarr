@@ -1,12 +1,21 @@
-# Integración Radarr vía Custom List
+# Integración Radarr vía Import List
 
-watchlistarr **no** habla con la API de Radarr. La integración es al revés: Radarr hace polling a un endpoint HTTP de watchlistarr usando su tipo de Import List llamado **"Custom List"**. Este documento es la spec de lo que watchlistarr debe servir.
+watchlistarr **no** habla con la API de Radarr. La integración es al revés: Radarr hace polling a un endpoint HTTP de watchlistarr usando uno de sus dos Import List providers basados en URL. Este documento es la spec de lo que watchlistarr debe servir.
+
+Radarr expone **dos provider distintos** que aceptan URL custom y leen JSON:
+
+| Provider en la UI | Identificador que lee | Archivo en el código fuente de Radarr |
+|---|---|---|
+| **Custom Lists** | `id` (case-insensitive Newtonsoft) → `TmdbId` | [`ImportLists/RadarrList/RadarrListParser.cs`](https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/ImportLists/RadarrList/RadarrListParser.cs) |
+| **StevenLu Custom** | `imdb_id` (`tt...`) | [`ImportLists/StevenLu/StevenLuParser.cs`](https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/ImportLists/StevenLu/StevenLuParser.cs) |
+
+watchlistarr emite un **superset JSON compatible con ambos**: cada item incluye `id`, `tmdb_id`, `title` e `imdb_id` (cuando lo tenemos). Newtonsoft.Json ignora silenciosamente los campos que cada parser no conoce, así que la misma URL funciona contra los dos provider — el usuario elige en la UI de Radarr cuál usar.
 
 > No hay documentación oficial del formato. El issue [Radarr/Radarr#8370](https://github.com/Radarr/Radarr/issues/8370) pidiendo specs fue cerrado como *not planned*. Todo lo que sigue viene de ingeniería inversa, listas que funcionan en producción y reportes de comunidad.
 
 ## Cómo lo configura el usuario en Radarr
 
-1. `Settings → Import Lists → ➕ → Custom List`.
+1. `Settings → Import Lists → ➕` → elegir **Custom Lists** *o* **StevenLu Custom**. Ambos funcionan contra la misma URL de watchlistarr. Recomendamos **Custom Lists** porque resuelve por TMDB ID (más rápido, no depende de que tengamos el `imdb_id` scrapeado).
 2. Campos:
    - **Name**: libre.
    - **Enable Automatic Add**: típicamente sí (si no, Radarr solo lista candidatos sin importarlos).
@@ -51,19 +60,22 @@ Array JSON **en la raíz**. No envolver en un objeto.
 ```json
 [
   {
+    "id": 1084242,
     "tmdb_id": 1084242,
     "title": "Zootopia 2",
     "imdb_id": "tt26443597"
   },
   {
+    "id": 83533,
     "tmdb_id": 83533,
     "title": "Avatar: Fire and Ash"
   }
 ]
 ```
 
-- **Campo crítico**: `imdb_id` (string `tt…`). El parser de Radarr para "Custom List" (`StevenLuParser.cs` / `StevenLuResponse`, verificado en `Radarr/Radarr@develop`) solo lee `title` y `imdb_id`; **`tmdb_id` es ignorado**. Sin `imdb_id` Radarr no resuelve la película y la lista aparece vacía con el error "No results were returned from your import list".
-- **snake_case**, no camelCase. Confirmado por el ejemplo canónico [StevenLu popular-movies](https://s3.amazonaws.com/popular-movies/movies.json) que Radarr consume desde hace años sin tocar.
+- **Custom Lists** lee `id` (Newtonsoft.Json es case-insensitive, así que `id` minúscula encaja con la property `Id` del DTO `MovieResultResource`). Sin `id` el item se descarta y la lista aparece vacía.
+- **StevenLu Custom** lee `imdb_id`. Sin `imdb_id` el item se descarta silenciosamente para ese parser y aparece el error "No results were returned from your import list".
+- **snake_case**, no camelCase. Confirmado por el ejemplo canónico [StevenLu popular-movies](https://s3.amazonaws.com/popular-movies/movies.json) y por el código de los dos parsers.
 - **Content-Type**: `application/json; charset=utf-8`.
 - **HTTP 200** con body válido. Lista vacía (`[]`) es válida.
 
@@ -71,13 +83,26 @@ Array JSON **en la raíz**. No envolver en un objeto.
 
 | Campo | Tipo | Uso |
 |---|---|---|
-| `imdb_id` | string `tt…` | **Requerido**: Radarr lo usa para resolver la película. Si falta, el item se descarta silenciosamente |
-| `title` | string | Útil para logs y debug; Radarr lo refresca desde TMDB tras resolver |
-| `tmdb_id` | int | **Ignorado por Radarr** (StevenLuParser no lo lee). watchlistarr lo sigue sirviendo como ayuda al debug y para futuros consumidores |
+| `id` | int | **Requerido por Custom Lists**: Radarr lo trata como TMDB ID y resuelve la película directo. Ignorado por StevenLu Custom |
+| `tmdb_id` | int | Alias interno (= `id`). Ignorado por ambos parsers. Lo mantenemos como ayuda al debug y para tooling propio |
+| `imdb_id` | string `tt…` | **Requerido por StevenLu Custom**. Ignorado por Custom Lists. Puede faltar si todavía no scrapeamos la film page del título |
+| `title` | string | Lo lee StevenLu Custom (Custom Lists lo ignora). Útil para logs igualmente. Radarr lo refresca desde TMDB tras resolver |
 
-### Por qué `tmdb_id` no basta
+### Cómo lee cada parser
 
-El parser real de Radarr es muy minimalista (lo confirmamos en el código fuente):
+**Custom Lists** (`RadarrListParser.cs` + `MovieResultResource`):
+
+```csharp
+public class MovieResultResource {
+    public int Id { get; set; }  // case-insensitive → "id" en JSON
+    // ... resto de campos opcionales
+}
+
+foreach (var m in jsonResponse.Where(m => m.Id > 0))
+    movies.Add(new ImportListMovie { TmdbId = m.Id });
+```
+
+**StevenLu Custom** (`StevenLuParser.cs` + `StevenLuResponse`):
 
 ```csharp
 public class StevenLuResponse {
@@ -93,7 +118,7 @@ foreach (var item in jsonResponse)
     });
 ```
 
-Cualquier campo fuera de `title`, `imdb_id`, `poster_url` se descarta al deserializar. Servir solo `tmdb_id` produce un `ImportListMovie` con `ImdbId = null` para cada item, y Radarr no importa nada.
+Como cada parser deserializa a su propio DTO e ignora el resto, podemos servir un único JSON con todos los campos y dejar que Radarr elija qué leer según el provider configurado.
 
 ### Cómo obtenemos el `imdb_id`
 
@@ -132,5 +157,8 @@ Una Custom List en Radarr ↔ una URL en watchlistarr ↔ un `list_id`. El usuar
 
 - [Radarr/Radarr#8370](https://github.com/Radarr/Radarr/issues/8370) — request de spec oficial (cerrado *not planned*).
 - [Radarr/Radarr#9139](https://github.com/Radarr/Radarr/issues/9139) — pitfall del array envuelto.
-- [StevenLu popular-movies.json](https://s3.amazonaws.com/popular-movies/movies.json) — ejemplo vivo de formato aceptado.
+- [`RadarrListParser.cs`](https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/ImportLists/RadarrList/RadarrListParser.cs) — parser del provider "Custom Lists" (lee `id`).
+- [`RadarrListImport.cs`](https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/ImportLists/RadarrList/RadarrListImport.cs) — `Name = "Custom Lists"`.
+- [`StevenLuParser.cs`](https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/ImportLists/StevenLu/StevenLuParser.cs) — parser del provider "StevenLu Custom" (lee `imdb_id`).
+- [StevenLu popular-movies.json](https://s3.amazonaws.com/popular-movies/movies.json) — ejemplo vivo de formato aceptado por StevenLu Custom.
 - [Servarr Wiki — Radarr Settings](https://wiki.servarr.com/radarr/settings) — UI path para Import Lists.

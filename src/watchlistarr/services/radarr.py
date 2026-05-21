@@ -22,7 +22,7 @@ async def serialize_list(session: AsyncSession, list_id: int) -> list[RadarrItem
         )
     ).all()
     return [
-        RadarrItem(tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
+        RadarrItem(id=tmdb_id, tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
         for tmdb_id, title, imdb_id in rows
     ]
 
@@ -37,7 +37,7 @@ async def serialize_custom_list(session: AsyncSession, custom_list_id: int) -> l
         )
     ).all()
     return [
-        RadarrItem(tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
+        RadarrItem(id=tmdb_id, tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
         for tmdb_id, title, imdb_id in rows
     ]
 
