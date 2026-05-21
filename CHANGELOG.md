@@ -6,6 +6,20 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-21
+
+### Fixed
+- Endpoint Radarr ahora incluye `imdb_id` por película. El parser de Radarr
+  para "Custom List" (`StevenLuParser.cs`) solo lee `title` e `imdb_id`;
+  servir únicamente `tmdb_id` causaba "No results were returned from your
+  import list" en cuanto Radarr intentaba sincronizar.
+
+### Added
+- Columna `films.imdb_id` (migración Alembic `0004_films_imdb_id`, índice unique parcial).
+- `parse_film_page` extrae el IMDb ID del HTML de Letterboxd (link `imdb.com/title/tt…`).
+- `resolve_film` re-resuelve lazy un film cacheado cuando su `imdb_id` está en `NULL`.
+- Script `scripts/backfill_imdb.py` y módulo `services/scrape/imdb_backfill.py` para enriquecer en bloque los films ya en DB.
+
 ## [1.0.0] - 2026-05-21
 
 Primer release público. Incluye todo el estado actual del proyecto.
