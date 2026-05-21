@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -64,6 +65,7 @@ async def _seed(db_url: str) -> None:
     from watchlistarr.models.watched_films import WatchedFilm
     from watchlistarr.services.custom_lists import init_items
 
+    current_year = datetime.now(UTC).year
     engine = create_async_engine(db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     try:
@@ -96,6 +98,13 @@ async def _seed(db_url: str) -> None:
                         year=2023,
                         imdb_id="tt0000040",
                     ),
+                    Film(
+                        tmdb_id=50,
+                        letterboxd_slug="fifty",
+                        title="Fifty",
+                        year=current_year,
+                        imdb_id="tt0000050",
+                    ),
                 ]
             )
             await session.flush()
@@ -120,6 +129,7 @@ async def _seed(db_url: str) -> None:
                     ListItem(list_id=alice_wl.id, tmdb_id=10, position=0),
                     ListItem(list_id=alice_wl.id, tmdb_id=20, position=1),
                     ListItem(list_id=alice_wl.id, tmdb_id=30, position=2),
+                    ListItem(list_id=alice_wl.id, tmdb_id=50, position=3),
                     ListItem(list_id=bob_wl.id, tmdb_id=30, position=0),
                     ListItem(list_id=bob_wl.id, tmdb_id=40, position=1),
                 ]
@@ -152,6 +162,26 @@ async def _seed(db_url: str) -> None:
             )
             await session.flush()
             await init_items(session, house)
+
+            recent = CustomList(
+                slug="recent",
+                name="Recent releases",
+                op=CombinationOp.UNION,
+                sort_order=SortOrder.LETTERBOXD,
+                year_last_n=1,
+                enabled=True,
+            )
+            session.add(recent)
+            await session.flush()
+            session.add(
+                CustomListSource(
+                    custom_list_id=recent.id,
+                    list_id=alice_wl.id,
+                    role=SourceRole.INCLUDE,
+                )
+            )
+            await session.flush()
+            await init_items(session, recent)
             await session.commit()
     finally:
         await engine.dispose()
@@ -207,7 +237,7 @@ def _exercise(base_url: str) -> None:
     r = httpx.get(f"{base_url}/alice/watchlist/")
     _assert(r.status_code == 200, "alice watchlist != 200")
     items = r.json()
-    _assert(isinstance(items, list) and len(items) == 3, f"alice watchlist len: {len(items)}")
+    _assert(isinstance(items, list) and len(items) == 4, f"alice watchlist len: {len(items)}")
     _assert(all(isinstance(i["tmdb_id"], int) for i in items), "tmdb_id no es int")
     _assert(all(isinstance(i["id"], int) for i in items), "id no es int")
     _assert(all(i["id"] == i["tmdb_id"] for i in items), "id != tmdb_id")
@@ -220,8 +250,17 @@ def _exercise(base_url: str) -> None:
     r = httpx.get(f"{base_url}/lists/house/")
     _assert(r.status_code == 200, "house custom list != 200")
     house_items = r.json()
-    _assert(len(house_items) == 4, f"house items != 4: {len(house_items)}")
+    _assert(len(house_items) == 5, f"house items != 5: {len(house_items)}")
     _assert(all(i["id"] == i["tmdb_id"] for i in house_items), "house: id != tmdb_id")
+
+    # Filtro relativo year_last_n=1: solo películas del año actual.
+    r = httpx.get(f"{base_url}/lists/recent/")
+    _assert(r.status_code == 200, "recent custom list != 200")
+    recent_items = r.json()
+    _assert(
+        [i["tmdb_id"] for i in recent_items] == [50],
+        f"recent yearLastN=1 esperaba solo [50], obtuvo {[i['tmdb_id'] for i in recent_items]}",
+    )
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")
     _assert(r.status_code == 404, "404 esperado para user inexistente")

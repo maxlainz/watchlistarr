@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 
 import structlog
 from sqlalchemy import select
@@ -100,27 +101,43 @@ async def _apply_filters(
 ) -> list[int]:
     if not tmdb_ids:
         return []
+    now = utcnow()
+    if custom_list.year_last_n is not None:
+        year_min: int | None = now.year - custom_list.year_last_n + 1
+        year_max: int | None = now.year
+    else:
+        year_min = custom_list.min_year
+        year_max = custom_list.max_year
+    added_after_eff: datetime | None
+    added_before_eff: datetime | None
+    if custom_list.added_last_n_days is not None:
+        added_after_eff = now - timedelta(days=custom_list.added_last_n_days)
+        added_before_eff = None
+    else:
+        added_after_eff = custom_list.added_after
+        added_before_eff = custom_list.added_before
+
     stmt = select(Film.tmdb_id).where(Film.tmdb_id.in_(tmdb_ids))
     if custom_list.min_rating is not None:
         stmt = stmt.where(Film.letterboxd_avg_rating >= custom_list.min_rating)
     if custom_list.max_rating is not None:
         stmt = stmt.where(Film.letterboxd_avg_rating <= custom_list.max_rating)
-    if custom_list.min_year is not None:
-        stmt = stmt.where(Film.year >= custom_list.min_year)
-    if custom_list.max_year is not None:
-        stmt = stmt.where(Film.year <= custom_list.max_year)
+    if year_min is not None:
+        stmt = stmt.where(Film.year >= year_min)
+    if year_max is not None:
+        stmt = stmt.where(Film.year <= year_max)
     filtered = [row[0] for row in (await session.execute(stmt)).all()]
 
-    if custom_list.added_after is not None or custom_list.added_before is not None:
+    if added_after_eff is not None or added_before_eff is not None:
         include_ids = await _source_list_ids(session, custom_list.id, SourceRole.INCLUDE)
         if include_ids:
             date_stmt = select(ListItem.tmdb_id).where(
                 ListItem.list_id.in_(include_ids), ListItem.tmdb_id.in_(filtered)
             )
-            if custom_list.added_after is not None:
-                date_stmt = date_stmt.where(ListItem.added_at >= custom_list.added_after)
-            if custom_list.added_before is not None:
-                date_stmt = date_stmt.where(ListItem.added_at <= custom_list.added_before)
+            if added_after_eff is not None:
+                date_stmt = date_stmt.where(ListItem.added_at >= added_after_eff)
+            if added_before_eff is not None:
+                date_stmt = date_stmt.where(ListItem.added_at <= added_before_eff)
             filtered = list({row[0] for row in (await session.execute(date_stmt)).all()})
     return filtered
 

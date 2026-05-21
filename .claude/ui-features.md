@@ -76,7 +76,7 @@ Form en una sola página con secciones:
 5. **Exclude already-watched** *(optional)* — checkboxes de users.
 6. **Preview pool** — `POST /api/v1/custom-lists/preview` con el body actual; devuelve `{pool: N}`. No persiste.
 7. **Serving** — Max items + Sort order (letterboxd / random / reverse).
-8. **Static filters** *(optional)* — min/max rating, min/max year.
+8. **Static filters** *(optional)* — min/max rating; **release year** con toggle Fixed/Relative (Fixed: min/max year; Relative: "Released in the last N years" con helper que muestra el rango resuelto, p.ej. `= 2022–2026`); **added in the last N days** (input relativo único). Los modos relativos se persisten en `year_last_n` / `added_last_n_days` y se recalculan contra `utcnow()` en cada serve.
 9. **Time rotation** *(optional)* — toggle + interval (horas) + batch size.
 
 Save → `POST /api/v1/custom-lists` (nuevo) o `PUT /api/v1/custom-lists/<slug>` (edit). El backend reusa `init_items` / `recalculate` del service existente.
