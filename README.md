@@ -27,6 +27,34 @@ watchlistarr watches public Letterboxd accounts and serves them to Radarr as Cus
 
 ## Quick start
 
+Two ways to install — pick the one that matches your setup.
+
+### Option 1: Add to your `docker-compose.yml` (recommended)
+
+Best if you already run an *-arr stack with Docker Compose. Drop this service into your existing `docker-compose.yml` (or create a new file with just this):
+
+```yaml
+services:
+  watchlistarr:
+    image: maxlainz/watchlistarr:1.0.0
+    container_name: watchlistarr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./watchlistarr/data:/data
+```
+
+Then bring it up:
+
+```bash
+docker compose up -d watchlistarr
+```
+
+> Want to change defaults (port, log level, sync intervals)? Add an `environment:` block to the service, or point `env_file:` at your own `.env`. See [`.env.example`](https://github.com/maxlainz/watchlistarr/blob/main/.env.example) for the full list of options — defaults are sensible, so most setups don't need any of them.
+
+### Option 2: Clone the repo
+
 ```bash
 git clone https://github.com/maxlainz/watchlistarr.git
 cd watchlistarr
@@ -34,10 +62,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then open `http://localhost:8080` in your browser. That's it — there's nothing else to configure to get going.
+Either way, open `http://localhost:8080` in your browser. That's it — there's nothing else to configure to get going.
 
-> **For production**, pin to a specific version in `docker-compose.yml`:
-> `image: maxlainz/watchlistarr:1.0.0` instead of `:latest`. Available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags).
+> **Versions**: `:1.0.0` is the latest stable release. Check [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags) for newer ones, or use `:latest` if you want every `docker compose pull` to bring you the most recent build.
 
 ## First-time setup
 
