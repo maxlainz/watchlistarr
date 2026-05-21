@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from bs4 import BeautifulSoup
@@ -39,6 +40,8 @@ def parse_film_page(html: str, *, slug: str) -> FilmPageData:
     if imdb_match:
         imdb_id = imdb_match.group(1)
 
+    letterboxd_avg_rating = _extract_avg_rating(soup)
+
     return FilmPageData(
         slug=slug,
         tmdb_id=tmdb_id,
@@ -46,4 +49,34 @@ def parse_film_page(html: str, *, slug: str) -> FilmPageData:
         title=title,
         year=year,
         imdb_id=imdb_id,
+        letterboxd_avg_rating=letterboxd_avg_rating,
     )
+
+
+def _extract_avg_rating(soup: BeautifulSoup) -> float | None:
+    for script in soup.find_all("script", type="application/ld+json"):
+        raw = script.string or script.get_text() or ""
+        # Letterboxd wraps the JSON in a CDATA-style comment in some pages.
+        raw = raw.strip().lstrip("/*").rstrip("*/").strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        candidates = data if isinstance(data, list) else [data]
+        for entry in candidates:
+            if not isinstance(entry, dict):
+                continue
+            rating = entry.get("aggregateRating")
+            if not isinstance(rating, dict):
+                continue
+            value = rating.get("ratingValue")
+            if isinstance(value, int | float):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    return float(value)
+                except ValueError:
+                    return None
+    return None

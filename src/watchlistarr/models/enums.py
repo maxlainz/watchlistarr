@@ -48,3 +48,4 @@ class SortOrder(StrEnum):
     LETTERBOXD = "letterboxd"
     RANDOM = "random"
     REVERSE = "reverse"
+    RATING_DESC = "rating_desc"

@@ -11,6 +11,35 @@ def test_parse_film_page_movie(film_page_movie_html: str) -> None:
     assert data.year == 2019
     assert data.imdb_id == "tt6751668"
     assert data.slug == "parasite-2019"
+    assert data.letterboxd_avg_rating == 4.53
+
+
+def test_parse_film_page_rating_missing_json_ld() -> None:
+    html = '<html><body data-tmdb-type="movie" data-tmdb-id="1"></body></html>'
+    data = parse_film_page(html, slug="no-rating")
+    assert data.letterboxd_avg_rating is None
+
+
+def test_parse_film_page_rating_string_value() -> None:
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+      {"@type":"Movie","aggregateRating":{"@type":"aggregateRating","ratingValue":"3.91"}}
+      </script>
+    </head><body data-tmdb-type="movie" data-tmdb-id="1"></body></html>
+    """
+    data = parse_film_page(html, slug="string-rating")
+    assert data.letterboxd_avg_rating == 3.91
+
+
+def test_parse_film_page_rating_invalid_json_ld() -> None:
+    html = """
+    <html><head>
+      <script type="application/ld+json">not actually json</script>
+    </head><body data-tmdb-type="movie" data-tmdb-id="1"></body></html>
+    """
+    data = parse_film_page(html, slug="bad-json")
+    assert data.letterboxd_avg_rating is None
 
 
 def test_parse_film_page_tv(film_page_tv_html: str) -> None:

@@ -24,6 +24,9 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
   const [maxRating, setMaxRating] = React.useState(existing?.maxRating ?? '');
   const [minYear, setMinYear] = React.useState(existing?.minYear ?? '');
   const [maxYear, setMaxYear] = React.useState(existing?.maxYear ?? '');
+  const [yearMode, setYearMode] = React.useState(existing?.yearLastN != null ? 'relative' : 'fixed');
+  const [yearLastN, setYearLastN] = React.useState(existing?.yearLastN ?? '');
+  const [addedLastNDays, setAddedLastNDays] = React.useState(existing?.addedLastNDays ?? '');
   const [rotationEnabled, setRotationEnabled] = React.useState(existing?.rotationEnabled || false);
   const [rotationInterval, setRotationInterval] = React.useState(existing?.rotationInterval ?? 168);
   const [rotationBatchSize, setRotationBatchSize] = React.useState(existing?.rotationBatchSize ?? 10);
@@ -50,22 +53,31 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
     return out;
   };
 
-  const buildPayload = () => ({
-    slug,
-    name,
-    op,
-    sources: buildSourcesPayload(),
-    excludedWatchers: [...excludedWatchers],
-    maxItems: maxItems === '' ? null : parseInt(maxItems, 10),
-    sortOrder,
-    minRating: minRating === '' ? null : parseFloat(minRating),
-    maxRating: maxRating === '' ? null : parseFloat(maxRating),
-    minYear: minYear === '' ? null : parseInt(minYear, 10),
-    maxYear: maxYear === '' ? null : parseInt(maxYear, 10),
-    rotationEnabled,
-    rotationInterval: rotationEnabled ? parseInt(rotationInterval, 10) || null : null,
-    rotationBatchSize: rotationEnabled ? parseInt(rotationBatchSize, 10) || 1 : 1,
-  });
+  const buildPayload = () => {
+    const yearPayload = yearMode === 'relative'
+      ? { minYear: null, maxYear: null, yearLastN: yearLastN === '' ? null : parseInt(yearLastN, 10) }
+      : {
+          minYear: minYear === '' ? null : parseInt(minYear, 10),
+          maxYear: maxYear === '' ? null : parseInt(maxYear, 10),
+          yearLastN: null,
+        };
+    return {
+      slug,
+      name,
+      op,
+      sources: buildSourcesPayload(),
+      excludedWatchers: [...excludedWatchers],
+      maxItems: maxItems === '' ? null : parseInt(maxItems, 10),
+      sortOrder,
+      minRating: minRating === '' ? null : parseFloat(minRating),
+      maxRating: maxRating === '' ? null : parseFloat(maxRating),
+      ...yearPayload,
+      addedLastNDays: addedLastNDays === '' ? null : parseInt(addedLastNDays, 10),
+      rotationEnabled,
+      rotationInterval: rotationEnabled ? parseInt(rotationInterval, 10) || null : null,
+      rotationBatchSize: rotationEnabled ? parseInt(rotationBatchSize, 10) || 1 : 1,
+    };
+  };
 
   const refreshPreview = async () => {
     setPreviewing(true);
@@ -247,6 +259,7 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
                   <option value="letterboxd">Letterboxd order (recommended)</option>
                   <option value="random">Random</option>
                   <option value="reverse">Reverse</option>
+                  <option value="rating_desc">Letterboxd avg rating (high to low)</option>
                 </select>
               </div>
             </div>
@@ -270,15 +283,49 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
                 <input className="input" type="number" step="0.1" min="0" max="5" placeholder="e.g. 5.0" value={maxRating} onChange={e => setMaxRating(e.target.value)} />
               </div>
             </div>
-            <div className="row-2">
-              <div className="field">
-                <label><Icon name="clock" size={13} /> Min year</label>
-                <input className="input" type="number" placeholder="e.g. 1990" value={minYear} onChange={e => setMinYear(e.target.value)} />
-              </div>
-              <div className="field">
-                <label><Icon name="clock" size={13} /> Max year</label>
-                <input className="input" type="number" placeholder="e.g. 2025" value={maxYear} onChange={e => setMaxYear(e.target.value)} />
-              </div>
+            <div className="field">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="clock" size={13} /> Release year
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+                  <Button variant={yearMode === 'fixed' ? 'primary' : 'ghost'} size="sm" onClick={() => setYearMode('fixed')}>Fixed</Button>
+                  <Button variant={yearMode === 'relative' ? 'primary' : 'ghost'} size="sm" onClick={() => setYearMode('relative')}>Relative</Button>
+                </span>
+              </label>
+              {yearMode === 'fixed' ? (
+                <div className="row-2">
+                  <div className="field">
+                    <label>Min year</label>
+                    <input className="input" type="number" placeholder="e.g. 1990" value={minYear} onChange={e => setMinYear(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Max year</label>
+                    <input className="input" type="number" placeholder="e.g. 2025" value={maxYear} onChange={e => setMaxYear(e.target.value)} />
+                  </div>
+                </div>
+              ) : (
+                <div className="field">
+                  <label>Released in the last N years</label>
+                  <input className="input" type="number" min="1" placeholder="e.g. 1" value={yearLastN} onChange={e => setYearLastN(e.target.value)} />
+                  <div className="hint">
+                    {yearLastN === '' || parseInt(yearLastN, 10) <= 0
+                      ? 'No year filter applied.'
+                      : (() => {
+                          const n = parseInt(yearLastN, 10);
+                          const cy = new Date().getFullYear();
+                          return n === 1 ? `Calendar year ${cy} only` : `Calendar years ${cy - n + 1}–${cy}`;
+                        })()}
+                    <br />
+                    <span style={{ color: 'var(--text-faint)' }}>
+                      Note: Letterboxd doesn&apos;t expose exact release dates, so this filters by calendar year (not rolling N days).
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="field">
+              <label><Icon name="clock" size={13} /> Added in the last N days <Badge>relative</Badge></label>
+              <input className="input" type="number" min="1" placeholder="e.g. 30" value={addedLastNDays} onChange={e => setAddedLastNDays(e.target.value)} />
+              <div className="hint">Only keep films added to source lists within the past N days. Leave blank to disable.</div>
             </div>
           </div>
         </div>

@@ -50,7 +50,7 @@ async def custom_list_endpoint(
     ).scalar_one_or_none()
     if custom_list is None:
         raise HTTPException(status_code=404, detail="custom list does not exist")
-    items = await serialize_custom_list(session, custom_list.id)
+    items = await serialize_custom_list(session, custom_list)
     return _respond(items, request)
 
 

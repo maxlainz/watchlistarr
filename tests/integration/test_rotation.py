@@ -18,8 +18,10 @@ from watchlistarr.services.custom_lists import (
     eligible_pool,
     init_items,
     recalculate,
+    resolve_full_pool,
     rotate,
 )
+from watchlistarr.services.radarr import serialize_custom_list
 
 
 async def _seed_user_list(
@@ -151,6 +153,161 @@ async def test_rotate_respects_interval(session: AsyncSession) -> None:
 
     rotated = await rotate(session, cl)
     assert rotated == 0
+
+
+async def test_letterboxd_sort_picks_top_of_source_order(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="top-letterboxd", max_items=3, sort_order=SortOrder.LETTERBOXD
+    )
+    await init_items(session, cl)
+    items = await serialize_custom_list(session, cl)
+    assert [it.tmdb_id for it in items] == [10, 20, 30]
+
+
+async def test_reverse_sort_picks_bottom_of_source_order(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="reverse-list", max_items=3, sort_order=SortOrder.REVERSE
+    )
+    await init_items(session, cl)
+    items = await serialize_custom_list(session, cl)
+    assert [it.tmdb_id for it in items] == [50, 40, 30]
+
+
+async def test_random_sort_returns_full_subset(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="rand", max_items=3, sort_order=SortOrder.RANDOM
+    )
+    count = await init_items(session, cl)
+    assert count == 3
+    items = await serialize_custom_list(session, cl)
+    assert len(items) == 3
+    assert {it.tmdb_id for it in items}.issubset({10, 20, 30, 40, 50})
+
+
+async def test_year_last_n_uses_relative_window(session: AsyncSession) -> None:
+    current_year = utcnow().year
+    user = User(letterboxd_username="alice")
+    session.add(user)
+    await session.flush()
+    parent = ListModel(
+        user_id=user.id,
+        source_type=SourceType.WATCHLIST,
+        slug="watchlist",
+        name="WL",
+        enabled=True,
+    )
+    session.add(parent)
+    await session.flush()
+    year_by_tmdb = {
+        1: current_year,
+        2: current_year - 1,
+        3: current_year - 2,
+        4: current_year - 10,
+    }
+    for pos, (tmdb_id, year) in enumerate(year_by_tmdb.items()):
+        session.add(
+            Film(
+                tmdb_id=tmdb_id,
+                letterboxd_slug=f"f{tmdb_id}",
+                title=f"Film {tmdb_id}",
+                year=year,
+            )
+        )
+        session.add(ListItem(list_id=parent.id, tmdb_id=tmdb_id, position=pos))
+    await session.flush()
+
+    cl = await _make_custom_list(session, parent, slug="recent", year_last_n=1)
+    pool = await resolve_full_pool(session, cl)
+    assert sorted(pool) == [1]
+
+    cl.year_last_n = 3
+    await session.flush()
+    pool = await resolve_full_pool(session, cl)
+    assert sorted(pool) == [1, 2, 3]
+
+
+async def test_year_last_n_overrides_min_max_year(session: AsyncSession) -> None:
+    current_year = utcnow().year
+    _, parent = await _seed_user_list(session, [1], year=current_year)
+    cl = await _make_custom_list(
+        session, parent, slug="override", min_year=1900, max_year=1950, year_last_n=2
+    )
+    pool = await resolve_full_pool(session, cl)
+    assert sorted(pool) == [1]
+
+
+async def test_rating_desc_picks_top_and_serves_in_order(session: AsyncSession) -> None:
+    user = User(letterboxd_username="alice")
+    session.add(user)
+    await session.flush()
+    parent = ListModel(
+        user_id=user.id,
+        source_type=SourceType.WATCHLIST,
+        slug="watchlist",
+        name="WL",
+        enabled=True,
+    )
+    session.add(parent)
+    await session.flush()
+    rating_by_tmdb = {1: 4.5, 2: 4.0, 3: 3.5, 4: 3.0, 5: None}
+    for pos, (tmdb_id, rating) in enumerate(rating_by_tmdb.items()):
+        session.add(
+            Film(
+                tmdb_id=tmdb_id,
+                letterboxd_slug=f"f{tmdb_id}",
+                title=f"Film {tmdb_id}",
+                year=2020,
+                letterboxd_avg_rating=rating,
+            )
+        )
+        session.add(ListItem(list_id=parent.id, tmdb_id=tmdb_id, position=pos))
+    await session.flush()
+
+    cl = await _make_custom_list(
+        session, parent, slug="top", max_items=3, sort_order=SortOrder.RATING_DESC
+    )
+    await init_items(session, cl)
+    items = await serialize_custom_list(session, cl)
+    assert [it.tmdb_id for it in items] == [1, 2, 3]
+
+
+async def test_added_last_n_days_filters_by_added_at(session: AsyncSession) -> None:
+    user = User(letterboxd_username="alice")
+    session.add(user)
+    await session.flush()
+    parent = ListModel(
+        user_id=user.id,
+        source_type=SourceType.WATCHLIST,
+        slug="watchlist",
+        name="WL",
+        enabled=True,
+    )
+    session.add(parent)
+    await session.flush()
+    now = utcnow()
+    added_by_tmdb = {
+        1: now - timedelta(days=1),
+        2: now - timedelta(days=5),
+        3: now - timedelta(days=40),
+    }
+    for pos, (tmdb_id, added_at) in enumerate(added_by_tmdb.items()):
+        session.add(
+            Film(
+                tmdb_id=tmdb_id,
+                letterboxd_slug=f"f{tmdb_id}",
+                title=f"Film {tmdb_id}",
+                year=2020,
+            )
+        )
+        session.add(ListItem(list_id=parent.id, tmdb_id=tmdb_id, position=pos, added_at=added_at))
+    await session.flush()
+
+    cl = await _make_custom_list(session, parent, slug="fresh", added_last_n_days=7)
+    pool = await resolve_full_pool(session, cl)
+    assert sorted(pool) == [1, 2]
 
 
 async def test_rotate_swaps_oldest(session: AsyncSession) -> None:

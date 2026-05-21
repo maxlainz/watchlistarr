@@ -259,6 +259,8 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
         "maxRating": cl.max_rating,
         "minYear": cl.min_year,
         "maxYear": cl.max_year,
+        "yearLastN": cl.year_last_n,
+        "addedLastNDays": cl.added_last_n_days,
         "rotationEnabled": cl.rotation_enabled,
         "rotationInterval": _td_hours(cl.rotation_interval),
         "rotationBatchSize": cl.rotation_batch_size,
@@ -715,6 +717,15 @@ async def create_custom_list(
         raise HTTPException(status_code=400, detail="at least one include source is required")
     excluded_user_ids = await _resolve_excluded_user_ids(session, payload)
 
+    year_last_n = _parse_optional_int(payload.get("yearLastN"))
+    if year_last_n is not None:
+        min_year = None
+        max_year = None
+    else:
+        min_year = _parse_optional_int(payload.get("minYear"))
+        max_year = _parse_optional_int(payload.get("maxYear"))
+    added_last_n_days = _parse_optional_int(payload.get("addedLastNDays"))
+
     cl = CustomList(
         slug=slug,
         name=name,
@@ -723,8 +734,10 @@ async def create_custom_list(
         max_items=_parse_optional_int(payload.get("maxItems")),
         min_rating=_parse_optional_float(payload.get("minRating")),
         max_rating=_parse_optional_float(payload.get("maxRating")),
-        min_year=_parse_optional_int(payload.get("minYear")),
-        max_year=_parse_optional_int(payload.get("maxYear")),
+        min_year=min_year,
+        max_year=max_year,
+        year_last_n=year_last_n,
+        added_last_n_days=added_last_n_days,
         rotation_enabled=bool(payload.get("rotationEnabled")),
         rotation_batch_size=int(payload.get("rotationBatchSize") or 1),
         rotation_interval=_td_from_hours(payload.get("rotationInterval")),
@@ -764,8 +777,16 @@ async def update_custom_list(
     cl.max_items = _parse_optional_int(payload.get("maxItems"))
     cl.min_rating = _parse_optional_float(payload.get("minRating"))
     cl.max_rating = _parse_optional_float(payload.get("maxRating"))
-    cl.min_year = _parse_optional_int(payload.get("minYear"))
-    cl.max_year = _parse_optional_int(payload.get("maxYear"))
+    year_last_n = _parse_optional_int(payload.get("yearLastN"))
+    if year_last_n is not None:
+        cl.year_last_n = year_last_n
+        cl.min_year = None
+        cl.max_year = None
+    else:
+        cl.year_last_n = None
+        cl.min_year = _parse_optional_int(payload.get("minYear"))
+        cl.max_year = _parse_optional_int(payload.get("maxYear"))
+    cl.added_last_n_days = _parse_optional_int(payload.get("addedLastNDays"))
     cl.rotation_enabled = bool(payload.get("rotationEnabled"))
     cl.rotation_batch_size = int(payload.get("rotationBatchSize") or 1)
     cl.rotation_interval = _td_from_hours(payload.get("rotationInterval"))

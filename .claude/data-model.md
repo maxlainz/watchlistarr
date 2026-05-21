@@ -17,9 +17,9 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 |---|---|---|
 | `users` | `id` (PK), `letterboxd_username` (unique), `display_name`, `added_at`, `rss_interval` (nullable), `watchlist_incremental_interval` (nullable), `watchlist_full_interval` (nullable), `films_backstop_interval` (nullable), `discovery_interval` (nullable) | Un perfil de Letterboxd = un user en la app. Los `*_interval` son **overrides**: NULL = heredar el default de la env var del mismo nombre |
 | `lists` | `id` (PK), `user_id` (FK), `source_type` (`list` / `watchlist`), `letterboxd_list_id` (nullable; null para watchlist), `slug`, `name`, `film_count`, `enabled`, `last_synced_at`, `last_sync_status`, `lists_incremental_interval` (nullable), `lists_full_interval` (nullable), `flap_confirm_scrapes` (nullable) | Lista importada de Letterboxd. La watchlist es solo un `source_type='watchlist'` y `slug='watchlist'`. Todas las listas (watchlist incluida) llegan `enabled=False`; el user activa lo que le interese |
-| `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `imdb_id` (nullable, unique parcial), `tmdb_type` (`movie`), `letterboxd_avg_rating` (nullable), `last_resolved_at` | Caché de la resolución HTML → TMDB/IMDb ID; global, no por user. `imdb_id` requerido por Radarr (ver radarr-custom-list.md). Rating Letterboxd persistido si la ficha lo expone |
+| `films` | `tmdb_id` (PK), `letterboxd_slug`, `title`, `year`, `imdb_id` (nullable, unique parcial), `tmdb_type` (`movie`), `letterboxd_avg_rating` (nullable, escala 0-5), `last_resolved_at` | Caché de la resolución HTML → TMDB/IMDb ID; global, no por user. `imdb_id` requerido por Radarr (ver radarr-custom-list.md). `letterboxd_avg_rating` se extrae del JSON-LD (`aggregateRating.ratingValue`) en `parse_film_page`; backfill lazy fuerza re-resolución cuando es NULL y existe `scripts/backfill_ratings.py` para batch |
 | `list_items` | `(list_id, tmdb_id)` (PK), `position`, `added_at`, `last_seen_at`, `pending_removal_count` | `pending_removal_count` para anti-flap (ver [`sync-strategy.md`](sync-strategy.md)) |
-| `custom_lists` | `id` (PK), `slug` (unique global), `name`, `op` (`union`/`intersection`), `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `added_after`, `added_before`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Lista derivada multi-source con políticas (cap, filtros, rotación). Servida en `/lists/<slug>/` |
+| `custom_lists` | `id` (PK), `slug` (unique global), `name`, `op` (`union`/`intersection`), `max_items` (nullable), `sort_order`, `min_rating`, `max_rating`, `min_year`, `max_year`, `year_last_n`, `added_after`, `added_before`, `added_last_n_days`, `rotation_enabled`, `rotation_interval`, `rotation_batch_size`, `last_rotated_at`, `enabled` | Lista derivada multi-source con políticas (cap, filtros, rotación). Servida en `/lists/<slug>/`. `year_last_n` y `added_last_n_days` son filtros **relativos a `utcnow()`** resueltos al aplicar — si están seteados, ignoran sus contrapartes absolutas |
 | `custom_list_sources` | `(custom_list_id, list_id, role)` (PK) | `role`: `include` o `subtract`. Una custom list puede tener N includes (combinados por `op`) y N subtracts (siempre se restan) |
 | `custom_list_excluded_watchers` | `(custom_list_id, user_id)` (PK) | Films que estos users ya vieron se restan del resultado final |
 | `custom_list_items` | `(custom_list_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas. FIFO por `served_since` durante la rotación |
@@ -48,8 +48,19 @@ includes  = union of list_items where list_id in (sources WHERE role='include') 
 subtracts = union of list_items where list_id in (sources WHERE role='subtract')
 watched   = union of watched_films.tmdb_id where user_id in excluded_watchers
 universe  = (includes - subtracts - watched)
-pool      = universe filtered by min_rating, max_rating, min_year, max_year, added_after, added_before
+pool      = universe filtered by min_rating, max_rating, year (absoluto o relativo), added_at (absoluto o relativo)
 ```
+
+**Filtros relativos** (`year_last_n`, `added_last_n_days`): se resuelven en cada `_apply_filters` contra `utcnow()`, no se persiste un valor derivado. Esto permite que ventanas tipo "watchlist + estrenos del último año" se actualicen solas al cambiar el año. Cuando uno de ellos no es NULL, el filtro absoluto correspondiente (`min_year`/`max_year` o `added_after`/`added_before`) se ignora; el back también fuerza esos absolutos a NULL al guardar para mantener consistencia. **Importante**: el filtro de año es siempre por año **calendario** (no rolling 365 días), porque Letterboxd no expone una `release_date` canónica — solo año. Limitación conocida: `custom_list_items` cacheado puede quedar obsoleto si nadie edita ni rota la lista durante mucho tiempo — el ciclo de vida del cache lo dispara `recalculate()` en cada edición.
+
+**`SortOrder`** se aplica en `_choose_from_pool` (selección en `init_items` / `recalculate` / `rotate`), materializando el orden en `CustomListItem.position`:
+
+- `LETTERBOXD`: orden ASC por `MIN(list_items.position)` sobre las include sources — coincide con el orden visible en Letterboxd.
+- `REVERSE`: orden DESC por `MAX(list_items.position)` — los del final de la lista primero.
+- `RANDOM`: `random.sample` del pool.
+- `RATING_DESC`: top-N por `Film.letterboxd_avg_rating DESC NULLS LAST`. Además, `serialize_custom_list` re-ordena por rating al servir, así que cambios en los ratings se reflejan sin recalcular.
+
+Para los tres primeros, `serialize_custom_list` ordena por `CustomListItem.position` (que ya viene en el orden correcto).
 
 Casos comunes:
 
@@ -60,6 +71,8 @@ Casos comunes:
 | Pendientes en común (combinada menos vistas por cualquiera) | watchlists de N users | union | — | los N users |
 | Lo de mi pareja que yo no he visto | watchlist de pareja | union | — | yo |
 | Mi lista "2010s" menos lo que ya está en mi watchlist | lista "2010s" | union | mi watchlist | — |
+| Watchlist + solo estrenos del último año | mi watchlist | union | — | — (más `year_last_n=1`) |
+| Pelis añadidas a la watchlist en los últimos 30 días | mi watchlist | union | — | — (más `added_last_n_days=30`) |
 
 ## Reservas en el espacio de URLs
 

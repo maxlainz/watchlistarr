@@ -32,6 +32,7 @@ class FilmPageData:
     title: str | None
     year: int | None
     imdb_id: str | None
+    letterboxd_avg_rating: float | None
 
 
 @dataclass(frozen=True, slots=True)

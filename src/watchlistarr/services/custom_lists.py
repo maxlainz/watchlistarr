@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.models.base import utcnow
@@ -12,7 +13,7 @@ from watchlistarr.models.custom_list_excluded_watchers import CustomListExcluded
 from watchlistarr.models.custom_list_items import CustomListItem
 from watchlistarr.models.custom_list_sources import CustomListSource
 from watchlistarr.models.custom_lists import CustomList
-from watchlistarr.models.enums import CombinationOp, SourceRole
+from watchlistarr.models.enums import CombinationOp, SortOrder, SourceRole
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.watched_films import WatchedFilm
@@ -100,29 +101,113 @@ async def _apply_filters(
 ) -> list[int]:
     if not tmdb_ids:
         return []
+    now = utcnow()
+    if custom_list.year_last_n is not None:
+        year_min: int | None = now.year - custom_list.year_last_n + 1
+        year_max: int | None = now.year
+    else:
+        year_min = custom_list.min_year
+        year_max = custom_list.max_year
+    added_after_eff: datetime | None
+    added_before_eff: datetime | None
+    if custom_list.added_last_n_days is not None:
+        added_after_eff = now - timedelta(days=custom_list.added_last_n_days)
+        added_before_eff = None
+    else:
+        added_after_eff = custom_list.added_after
+        added_before_eff = custom_list.added_before
+
     stmt = select(Film.tmdb_id).where(Film.tmdb_id.in_(tmdb_ids))
     if custom_list.min_rating is not None:
         stmt = stmt.where(Film.letterboxd_avg_rating >= custom_list.min_rating)
     if custom_list.max_rating is not None:
         stmt = stmt.where(Film.letterboxd_avg_rating <= custom_list.max_rating)
-    if custom_list.min_year is not None:
-        stmt = stmt.where(Film.year >= custom_list.min_year)
-    if custom_list.max_year is not None:
-        stmt = stmt.where(Film.year <= custom_list.max_year)
+    if year_min is not None:
+        stmt = stmt.where(Film.year >= year_min)
+    if year_max is not None:
+        stmt = stmt.where(Film.year <= year_max)
     filtered = [row[0] for row in (await session.execute(stmt)).all()]
 
-    if custom_list.added_after is not None or custom_list.added_before is not None:
+    if added_after_eff is not None or added_before_eff is not None:
         include_ids = await _source_list_ids(session, custom_list.id, SourceRole.INCLUDE)
         if include_ids:
             date_stmt = select(ListItem.tmdb_id).where(
                 ListItem.list_id.in_(include_ids), ListItem.tmdb_id.in_(filtered)
             )
-            if custom_list.added_after is not None:
-                date_stmt = date_stmt.where(ListItem.added_at >= custom_list.added_after)
-            if custom_list.added_before is not None:
-                date_stmt = date_stmt.where(ListItem.added_at <= custom_list.added_before)
+            if added_after_eff is not None:
+                date_stmt = date_stmt.where(ListItem.added_at >= added_after_eff)
+            if added_before_eff is not None:
+                date_stmt = date_stmt.where(ListItem.added_at <= added_before_eff)
             filtered = list({row[0] for row in (await session.execute(date_stmt)).all()})
     return filtered
+
+
+async def _order_pool_by_source_position(
+    session: AsyncSession,
+    custom_list: CustomList,
+    pool: list[int],
+    *,
+    desc: bool,
+) -> list[int]:
+    """Devuelve los tmdb_ids del pool ordenados por su posición agregada en
+    las include sources del custom list.
+
+    Para ``desc=False`` (LETTERBOXD) usa ``MIN(position)`` ASC — el film toma
+    la posición más temprana en cualquiera de sus listas de origen. Para
+    ``desc=True`` (REVERSE) usa ``MAX(position)`` DESC — los del final primero.
+
+    Films del pool que no aparezcan en ninguna include source (no debería
+    pasar tras ``resolve_universe``) van al final ordenados por ``tmdb_id``.
+    """
+    if not pool:
+        return []
+    include_ids = await _source_list_ids(session, custom_list.id, SourceRole.INCLUDE)
+    if not include_ids:
+        return list(pool)
+    agg = func.max(ListItem.position) if desc else func.min(ListItem.position)
+    order_clause = agg.desc() if desc else agg.asc()
+    rows = (
+        await session.execute(
+            select(ListItem.tmdb_id, agg.label("pos"))
+            .where(ListItem.list_id.in_(include_ids), ListItem.tmdb_id.in_(pool))
+            .group_by(ListItem.tmdb_id)
+            .order_by(order_clause, ListItem.tmdb_id)
+        )
+    ).all()
+    ordered = [row[0] for row in rows]
+    seen = set(ordered)
+    leftovers = sorted(t for t in pool if t not in seen)
+    return ordered + leftovers
+
+
+async def _choose_from_pool(
+    session: AsyncSession, custom_list: CustomList, pool: list[int], n: int
+) -> list[int]:
+    """Picks ``n`` tmdb_ids from ``pool`` honoring ``custom_list.sort_order``."""
+    if n <= 0 or not pool:
+        return []
+    sort_order = custom_list.sort_order
+    if sort_order is SortOrder.RATING_DESC:
+        rows = (
+            await session.execute(
+                select(Film.tmdb_id)
+                .where(Film.tmdb_id.in_(pool))
+                .order_by(
+                    Film.letterboxd_avg_rating.is_(None),
+                    Film.letterboxd_avg_rating.desc(),
+                    Film.tmdb_id,
+                )
+                .limit(n)
+            )
+        ).all()
+        return [row[0] for row in rows]
+    if sort_order is SortOrder.LETTERBOXD:
+        ordered = await _order_pool_by_source_position(session, custom_list, pool, desc=False)
+        return ordered[:n]
+    if sort_order is SortOrder.REVERSE:
+        ordered = await _order_pool_by_source_position(session, custom_list, pool, desc=True)
+        return ordered[:n]
+    return random.sample(pool, min(len(pool), n))
 
 
 async def eligible_pool(session: AsyncSession, custom_list: CustomList) -> list[int]:
@@ -152,7 +237,7 @@ async def init_items(session: AsyncSession, custom_list: CustomList) -> int:
     if not pool:
         return 0
     cap = custom_list.max_items if custom_list.max_items is not None else len(pool)
-    chosen = random.sample(pool, min(len(pool), cap))
+    chosen = await _choose_from_pool(session, custom_list, pool, cap)
     now = utcnow()
     for pos, tmdb_id in enumerate(chosen):
         session.add(
@@ -207,7 +292,7 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
         return
     pool = await eligible_pool(session, custom_list)
     need = custom_list.max_items - remaining_count
-    chosen = random.sample(pool, min(len(pool), need))
+    chosen = await _choose_from_pool(session, custom_list, pool, need)
     now = utcnow()
     for pos, tmdb_id in enumerate(chosen, start=remaining_count):
         session.add(
@@ -249,7 +334,7 @@ async def rotate(session: AsyncSession, custom_list: CustomList) -> int:
     batch = min(custom_list.rotation_batch_size, len(pool))
     for item in served[:batch]:
         await session.delete(item)
-    chosen = random.sample(pool, batch)
+    chosen = await _choose_from_pool(session, custom_list, pool, batch)
     for pos, tmdb_id in enumerate(chosen):
         session.add(
             CustomListItem(
