@@ -46,10 +46,26 @@ const Card = ({ title, sub, actions, padded = true, children }) => (
 
 const CodeLine = ({ url }) => {
   const [copied, setCopied] = React.useState(false);
-  const handleCopy = (e) => {
+  const handleCopy = async (e) => {
     e.stopPropagation();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch (err) {
+      console.error('copy failed', err);
+    }
   };
   return (
     <div className={`code-line ${copied ? 'copied' : ''}`} title={url}>

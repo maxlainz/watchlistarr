@@ -15,7 +15,7 @@ import asyncio
 import sys
 
 from watchlistarr.config import get_settings
-from watchlistarr.db import dispose_engine, init_engine, session_scope
+from watchlistarr.db import dispose_engine, get_session_factory, init_engine
 from watchlistarr.services.letterboxd.client import LetterboxdClient
 from watchlistarr.services.scrape.imdb_backfill import backfill_missing_imdb_ids
 
@@ -24,8 +24,9 @@ async def _main(limit: int | None) -> int:
     settings = get_settings()
     init_engine(settings.database_url)
     try:
-        async with LetterboxdClient(settings) as client, session_scope() as session:
-            enriched = await backfill_missing_imdb_ids(session, client, limit=limit)
+        factory = get_session_factory()
+        async with LetterboxdClient(settings) as client:
+            enriched = await backfill_missing_imdb_ids(factory, client, limit=limit)
         print(f"backfilled imdb_id en {enriched} films")
     finally:
         await dispose_engine()

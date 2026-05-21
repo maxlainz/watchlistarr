@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -22,18 +23,39 @@ logger = structlog.get_logger(__name__)
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
-async def _run_step(
+async def _ensure_watchlist_row(factory: async_sessionmaker[AsyncSession], user_id: int) -> None:
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            return
+        await ensure_watchlist_row(session, user)
+        await session.commit()
+
+
+async def _discover_for_user(
     factory: async_sessionmaker[AsyncSession],
-    source: ScrapeSource,
-    target_id: int | None,
-    body: Callable[[AsyncSession], Awaitable[None]],
-) -> bool:
-    try:
-        await with_scrape_audit(factory, source, target_id, body)
-        return True
-    except Exception as exc:
-        logger.exception("initial_run.step_failed", source=source.value, error=str(exc))
-        return False
+    client: LetterboxdClient,
+    user_id: int,
+) -> None:
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            return
+        # Detach the user to safely use it outside the session boundary; we only
+        # read scalar attributes (`letterboxd_username`, `id`).
+    await discover_lists(factory, client, user)
+
+
+async def _backstop_for_user(
+    factory: async_sessionmaker[AsyncSession],
+    client: LetterboxdClient,
+    user_id: int,
+) -> None:
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            return
+    await backstop_films_for_user(factory, client, user)
 
 
 async def _collect_lists(
@@ -46,6 +68,22 @@ async def _collect_lists(
             )
         ).all()
     return [(row[0], row[1]) for row in rows]
+
+
+async def _run_step(
+    factory: async_sessionmaker[AsyncSession],
+    source: ScrapeSource,
+    target_id: int | None,
+    coro_factory: Callable[[], Awaitable[Any]],
+) -> bool:
+    """Envuelve ``coro_factory()`` con auditoría. Se pasa un callable lazy para
+    que cada intento construya su propia corrutina."""
+    try:
+        await with_scrape_audit(factory, source, target_id, coro_factory())
+        return True
+    except Exception as exc:
+        logger.exception("initial_run.step_failed", source=source.value, error=str(exc))
+        return False
 
 
 async def _initial_run(
@@ -61,48 +99,40 @@ async def _initial_run(
     client = LetterboxdClient(settings)
     logger.info("initial_run.background.start", user_id=user_id)
     try:
+        await _run_step(
+            factory,
+            ScrapeSource.DISCOVERY,
+            user_id,
+            lambda: _ensure_watchlist_row(factory, user_id),
+        )
+        await _run_step(
+            factory,
+            ScrapeSource.DISCOVERY,
+            user_id,
+            lambda: _discover_for_user(factory, client, user_id),
+        )
+        await _run_step(
+            factory,
+            ScrapeSource.FILMS,
+            user_id,
+            lambda: _backstop_for_user(factory, client, user_id),
+        )
 
-        async def _ensure_wl(session: AsyncSession) -> None:
-            user = await session.get(User, user_id)
-            if user is None:
-                return
-            await ensure_watchlist_row(session, user)
-
-        async def _discover(session: AsyncSession) -> None:
-            user = await session.get(User, user_id)
-            if user is None:
-                return
-            await discover_lists(session, client, user)
-
-        async def _backstop(session: AsyncSession) -> None:
-            user = await session.get(User, user_id)
-            if user is None:
-                return
-            await backstop_films_for_user(session, client, user)
-
-        await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _ensure_wl)
-        await _run_step(factory, ScrapeSource.DISCOVERY, user_id, _discover)
-        await _run_step(factory, ScrapeSource.FILMS, user_id, _backstop)
-
-        # Sequential full sync of every discovered list so items are ready when
-        # the user enables one. Sequential (not parallel) to avoid bursts against
-        # Letterboxd; each list will take 30s-5m depending on film count.
         for list_id, source_type in await _collect_lists(factory, user_id):
             is_wl = source_type is SourceType.WATCHLIST
             source = ScrapeSource.WATCHLIST if is_wl else ScrapeSource.LIST
+            sync = sync_watchlist_full if is_wl else sync_list_full
 
-            async def _sync_one(
-                session: AsyncSession, _list_id: int = list_id, _is_wl: bool = is_wl
-            ) -> None:
-                list_row = await session.get(ListModel, _list_id)
-                if list_row is None:
-                    return
-                if _is_wl:
-                    await sync_watchlist_full(session, client, list_row)
-                else:
-                    await sync_list_full(session, client, list_row)
+            def _make(
+                sync_fn: Callable[
+                    [async_sessionmaker[AsyncSession], LetterboxdClient, int],
+                    Awaitable[None],
+                ] = sync,
+                lid: int = list_id,
+            ) -> Callable[[], Awaitable[None]]:
+                return lambda: sync_fn(factory, client, lid)
 
-            await _run_step(factory, source, list_id, _sync_one)
+            await _run_step(factory, source, list_id, _make())
     finally:
         await client.aclose()
     logger.info("initial_run.background.done", user_id=user_id)
@@ -131,9 +161,9 @@ async def _sync_single_list(
     settings: Settings,
     list_id: int,
 ) -> None:
-    """Full-sync a single list in its own session + client. Used by the toggle
-    endpoint to kick off an immediate scrape without waiting for the scheduler
-    tick. Audited like any other scrape."""
+    """Full-sync a single list in its own client. Used by the toggle endpoint to
+    kick off an immediate scrape without waiting for the scheduler tick. The
+    scraper itself manages short DB transactions; we just wrap it in audit."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
@@ -142,18 +172,9 @@ async def _sync_single_list(
                 return
             is_wl = list_row.source_type is SourceType.WATCHLIST
         source = ScrapeSource.WATCHLIST if is_wl else ScrapeSource.LIST
-
-        async def _body(session: AsyncSession) -> None:
-            list_row = await session.get(ListModel, list_id)
-            if list_row is None:
-                return
-            if list_row.source_type is SourceType.WATCHLIST:
-                await sync_watchlist_full(session, client, list_row)
-            else:
-                await sync_list_full(session, client, list_row)
-
+        sync = sync_watchlist_full if is_wl else sync_list_full
         try:
-            await with_scrape_audit(factory, source, list_id, _body)
+            await with_scrape_audit(factory, source, list_id, sync(factory, client, list_id))
         except Exception as exc:
             logger.exception("toggle.immediate_sync_failed", list_id=list_id, error=str(exc))
     finally:

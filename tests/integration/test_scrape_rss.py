@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import respx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.integration.conftest import fixture_text
 from watchlistarr.models.users import User
@@ -15,16 +15,18 @@ from watchlistarr.services.scrape.rss_watcher import poll_rss_for_user
 
 @respx.mock
 async def test_poll_rss_creates_viewing_logs_and_watched_films(
-    session: AsyncSession, letterboxd_client: LetterboxdClient
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
 ) -> None:
     user = User(letterboxd_username="maxlainz")
     session.add(user)
-    await session.flush()
+    await session.commit()
 
     respx.get("https://letterboxd.com/maxlainz/rss/").mock(
         return_value=httpx.Response(200, text=fixture_text("rss_feed.xml"))
     )
-    new = await poll_rss_for_user(session, letterboxd_client, user)
+    new = await poll_rss_for_user(factory, letterboxd_client, user)
     assert new == 2
 
     logs = list((await session.execute(select(ViewingLog))).scalars().all())
@@ -39,15 +41,17 @@ async def test_poll_rss_creates_viewing_logs_and_watched_films(
 
 @respx.mock
 async def test_poll_rss_dedup_by_guid(
-    session: AsyncSession, letterboxd_client: LetterboxdClient
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
 ) -> None:
     user = User(letterboxd_username="maxlainz")
     session.add(user)
-    await session.flush()
+    await session.commit()
 
     respx.get("https://letterboxd.com/maxlainz/rss/").mock(
         return_value=httpx.Response(200, text=fixture_text("rss_feed.xml"))
     )
-    await poll_rss_for_user(session, letterboxd_client, user)
-    second = await poll_rss_for_user(session, letterboxd_client, user)
+    await poll_rss_for_user(factory, letterboxd_client, user)
+    second = await poll_rss_for_user(factory, letterboxd_client, user)
     assert second == 0

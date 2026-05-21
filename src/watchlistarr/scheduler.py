@@ -216,34 +216,43 @@ async def _with_user(
     factory: async_sessionmaker[AsyncSession],
     settings: Settings,
     user_id: int,
-    body: Callable[[AsyncSession, LetterboxdClient, User], Awaitable[Any]],
+    body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, User], Awaitable[Any]],
 ) -> None:
+    """Lookup del user en sesión corta y delega al body. El body abre sus propias
+    sesiones de escritura para no mantener el write-lock durante HTTP."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
             user = await session.get(User, user_id)
             if user is None:
                 return
-            await body(session, client, user)
-            await session.commit()
+        await body(factory, client, user)
     finally:
         await client.aclose()
 
 
-async def _with_list(
+async def _with_watchlist(
     factory: async_sessionmaker[AsyncSession],
     settings: Settings,
-    list_id: int,
-    body: Callable[[AsyncSession, LetterboxdClient, ListModel], Awaitable[None]],
+    user_id: int,
+    body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, int], Awaitable[Any]],
 ) -> None:
+    """Resuelve la watchlist del user en sesión corta y delega al body con su list_id."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
-            list_row = await session.get(ListModel, list_id)
-            if list_row is None:
+            row = (
+                await session.execute(
+                    select(ListModel).where(
+                        ListModel.user_id == user_id,
+                        ListModel.source_type == SourceType.WATCHLIST,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
                 return
-            await body(session, client, list_row)
-            await session.commit()
+            list_id = row.id
+        await body(factory, client, list_id)
     finally:
         await client.aclose()
 
@@ -257,48 +266,19 @@ async def _run_rss(
 async def _run_watchlist_incremental(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    async def body(session: AsyncSession, client: LetterboxdClient, user: User) -> None:
-        watchlist = (
-            await session.execute(
-                select(ListModel).where(
-                    ListModel.user_id == user.id,
-                    ListModel.source_type == SourceType.WATCHLIST,
-                )
-            )
-        ).scalar_one_or_none()
-        if watchlist is None:
-            return
-        await sync_watchlist_incremental(session, client, watchlist)
-
-    await _with_user(factory, settings, user_id, body)
+    await _with_watchlist(factory, settings, user_id, sync_watchlist_incremental)
 
 
 async def _run_watchlist_full(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    async def body(session: AsyncSession, client: LetterboxdClient, user: User) -> None:
-        watchlist = (
-            await session.execute(
-                select(ListModel).where(
-                    ListModel.user_id == user.id,
-                    ListModel.source_type == SourceType.WATCHLIST,
-                )
-            )
-        ).scalar_one_or_none()
-        if watchlist is None:
-            return
-        await sync_watchlist_full(session, client, watchlist)
-
-    await _with_user(factory, settings, user_id, body)
+    await _with_watchlist(factory, settings, user_id, sync_watchlist_full)
 
 
 async def _run_discovery(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    async def body(session: AsyncSession, client: LetterboxdClient, user: User) -> None:
-        await discover_lists(session, client, user)
-
-    await _with_user(factory, settings, user_id, body)
+    await _with_user(factory, settings, user_id, discover_lists)
 
 
 async def _run_films_backstop(
@@ -310,13 +290,21 @@ async def _run_films_backstop(
 async def _run_list_incremental(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    await _with_list(factory, settings, list_id, sync_list_incremental)
+    client = LetterboxdClient(settings)
+    try:
+        await sync_list_incremental(factory, client, list_id)
+    finally:
+        await client.aclose()
 
 
 async def _run_list_full(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    await _with_list(factory, settings, list_id, sync_list_full)
+    client = LetterboxdClient(settings)
+    try:
+        await sync_list_full(factory, client, list_id)
+    finally:
+        await client.aclose()
 
 
 async def _run_rotation_tick(factory: async_sessionmaker[AsyncSession]) -> None:

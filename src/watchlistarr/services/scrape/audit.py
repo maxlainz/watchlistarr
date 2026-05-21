@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -13,15 +13,18 @@ async def with_scrape_audit[T](
     session_factory: async_sessionmaker[AsyncSession],
     source: ScrapeSource,
     target_id: int | None,
-    body: Callable[[AsyncSession], Awaitable[T]],
+    coro: Awaitable[T],
 ) -> T:
+    """Envuelve una corrutina con un ``ScrapeRun`` de auditoría.
+
+    A diferencia de la versión anterior, NO inyecta una sesión: los scrapers
+    son responsables de abrir y cerrar sus propias sesiones (con transacciones
+    cortas) para no bloquear el write-lock de SQLite mientras hacen HTTP.
+    """
     started = datetime.now(UTC)
-    # Record the run as RUNNING up-front so callers can detect in-flight scrapes.
     run_id = await _start(session_factory, source, target_id, started)
     try:
-        async with session_factory() as work:
-            result = await body(work)
-            await work.commit()
+        result = await coro
         ended = datetime.now(UTC)
         await _finish(session_factory, run_id, ended, ScrapeStatus.SUCCESS, None)
         return result

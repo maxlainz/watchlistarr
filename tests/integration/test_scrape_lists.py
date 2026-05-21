@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import respx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.integration.conftest import fixture_text
 from watchlistarr.models.enums import SourceType, SyncStatus
@@ -39,13 +39,15 @@ async def _make_user_list(session: AsyncSession) -> ListModel:
         enabled=True,
     )
     session.add(lst)
-    await session.flush()
+    await session.commit()
     return lst
 
 
 @respx.mock
 async def test_sync_list_full_populates_items(
-    session: AsyncSession, letterboxd_client: LetterboxdClient
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
 ) -> None:
     lst = await _make_user_list(session)
     respx.get("https://letterboxd.com/alice/list/favs/").mock(
@@ -55,18 +57,26 @@ async def test_sync_list_full_populates_items(
     _stub_film_page("parasite-2019", 496243)
     _stub_film_page("anatomy-of-a-fall", 915935)
 
-    await sync_list_full(session, letterboxd_client, lst)
-    items = (
-        (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().all()
-    )
-    assert {it.tmdb_id for it in items} == {447210, 496243, 915935}
-    assert lst.last_sync_status is SyncStatus.SUCCESS
-    assert lst.film_count == 3
+    await sync_list_full(factory, letterboxd_client, lst.id)
+    async with factory() as verify:
+        items = (
+            (await verify.execute(select(ListItem).where(ListItem.list_id == lst.id)))
+            .scalars()
+            .all()
+        )
+        assert {it.tmdb_id for it in items} == {447210, 496243, 915935}
+        refreshed = (
+            await verify.execute(select(ListModel).where(ListModel.id == lst.id))
+        ).scalar_one()
+        assert refreshed.last_sync_status is SyncStatus.SUCCESS
+        assert refreshed.film_count == 3
 
 
 @respx.mock
 async def test_sync_list_incremental_uses_added_earliest_when_paginated(
-    session: AsyncSession, letterboxd_client: LetterboxdClient
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
 ) -> None:
     lst = await _make_user_list(session)
     # Página 1 con paginación a 23.
@@ -82,7 +92,7 @@ async def test_sync_list_incremental_uses_added_earliest_when_paginated(
     _stub_film_page("parasite-2019", 496243)
     _stub_film_page("anatomy-of-a-fall", 915935)
 
-    await sync_list_incremental(session, letterboxd_client, lst)
+    await sync_list_incremental(factory, letterboxd_client, lst.id)
     items = (
         (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().all()
     )
