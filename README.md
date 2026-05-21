@@ -36,7 +36,7 @@ Best if you already run an *-arr stack with Docker Compose. Drop this service in
 ```yaml
 services:
   watchlistarr:
-    image: maxlainz/watchlistarr:1.0.0
+    image: maxlainz/watchlistarr:latest
     container_name: watchlistarr
     restart: unless-stopped
     ports:
@@ -64,7 +64,7 @@ docker compose up -d
 
 Either way, open `http://localhost:8080` in your browser. That's it — there's nothing else to configure to get going.
 
-> **Versions**: `:1.0.0` is the latest stable release. Check [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags) for newer ones, or use `:latest` if you want every `docker compose pull` to bring you the most recent build.
+> **Versions**: `:latest` always tracks the newest build. To pin a specific version (recommended for production), check [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags) and replace `:latest` with e.g. `:1.0.0`.
 
 ## First-time setup
 
