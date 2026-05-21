@@ -14,6 +14,7 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 - Al mergear a `main`, el mensaje debe resumir todo lo nuevo desde el último commit en `main`.
 - Actualizar los docs de `.claude/` tras cualquier cambio mayor en arquitectura, comandos o reglas.
 - Idioma de docs y commits: español. Identificadores, nombres de variables, ramas y código en inglés.
+- Cortar releases con tag `vX.Y.Z` solo desde `main`. Doble bump (`pyproject.toml` + `src/watchlistarr/__init__.py`) y entrada en `CHANGELOG.md` en el mismo commit `chore(release): vX.Y.Z`. Detalles: [`.claude/versioning.md`](.claude/versioning.md).
 
 ## Contexto (leer según tarea)
 
@@ -29,3 +30,4 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 | [`.claude/ui-features.md`](.claude/ui-features.md) | Antes de tocar la GUI — catálogo de páginas, acciones y formularios; qué se configura por web y qué por env |
 | [`.claude/tech-stack.md`](.claude/tech-stack.md) | Antes de tocar dependencias, configuración del proyecto o estructura de directorios — versiones, layout, comandos, decisiones técnicas |
 | [`.claude/workflows.md`](.claude/workflows.md) | Comandos de desarrollo, Docker, deploy, merge a `main`, variables de entorno |
+| [`.claude/versioning.md`](.claude/versioning.md) | Antes de cortar una release — SemVer, conventional commits → bump, tags git y Docker, CHANGELOG, procedimiento |
