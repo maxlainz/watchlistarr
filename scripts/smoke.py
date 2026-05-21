@@ -82,6 +82,7 @@ async def _seed(db_url: str) -> None:
                         title="Ten",
                         year=2020,
                         imdb_id="tt0000010",
+                        letterboxd_avg_rating=3.5,
                     ),
                     Film(
                         tmdb_id=20,
@@ -89,14 +90,22 @@ async def _seed(db_url: str) -> None:
                         title="Twenty",
                         year=2021,
                         imdb_id="tt0000020",
+                        letterboxd_avg_rating=4.2,
                     ),
-                    Film(tmdb_id=30, letterboxd_slug="thirty", title="Thirty", year=2022),
+                    Film(
+                        tmdb_id=30,
+                        letterboxd_slug="thirty",
+                        title="Thirty",
+                        year=2022,
+                        letterboxd_avg_rating=2.8,
+                    ),
                     Film(
                         tmdb_id=40,
                         letterboxd_slug="forty",
                         title="Forty",
                         year=2023,
                         imdb_id="tt0000040",
+                        letterboxd_avg_rating=4.7,
                     ),
                     Film(
                         tmdb_id=50,
@@ -104,6 +113,7 @@ async def _seed(db_url: str) -> None:
                         title="Fifty",
                         year=current_year,
                         imdb_id="tt0000050",
+                        letterboxd_avg_rating=3.9,
                     ),
                 ]
             )
@@ -182,6 +192,33 @@ async def _seed(db_url: str) -> None:
             )
             await session.flush()
             await init_items(session, recent)
+
+            top_rated = CustomList(
+                slug="top-rated",
+                name="Top rated",
+                op=CombinationOp.UNION,
+                sort_order=SortOrder.RATING_DESC,
+                max_items=3,
+                enabled=True,
+            )
+            session.add(top_rated)
+            await session.flush()
+            session.add_all(
+                [
+                    CustomListSource(
+                        custom_list_id=top_rated.id,
+                        list_id=alice_wl.id,
+                        role=SourceRole.INCLUDE,
+                    ),
+                    CustomListSource(
+                        custom_list_id=top_rated.id,
+                        list_id=bob_wl.id,
+                        role=SourceRole.INCLUDE,
+                    ),
+                ]
+            )
+            await session.flush()
+            await init_items(session, top_rated)
             await session.commit()
     finally:
         await engine.dispose()
@@ -260,6 +297,17 @@ def _exercise(base_url: str) -> None:
     _assert(
         [i["tmdb_id"] for i in recent_items] == [50],
         f"recent yearLastN=1 esperaba solo [50], obtuvo {[i['tmdb_id'] for i in recent_items]}",
+    )
+
+    # SortOrder RATING_DESC: top-3 por letterboxd_avg_rating.
+    # Films seed: 40→4.7, 20→4.2, 50→3.9, 10→3.5, 30→2.8. Alice ya vio 10 (excl).
+    # Top 3 = [40, 20, 50].
+    r = httpx.get(f"{base_url}/lists/top-rated/")
+    _assert(r.status_code == 200, "top-rated custom list != 200")
+    top_items = r.json()
+    _assert(
+        [i["tmdb_id"] for i in top_items] == [40, 20, 50],
+        f"top-rated esperaba [40, 20, 50], obtuvo {[i['tmdb_id'] for i in top_items]}",
     )
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")

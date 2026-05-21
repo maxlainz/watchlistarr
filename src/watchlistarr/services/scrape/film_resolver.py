@@ -67,7 +67,7 @@ async def resolve_films(
     needs_fetch: list[str] = []
     for slug in unique_slugs:
         film = cached_by_slug.get(slug)
-        if film is not None and film.imdb_id is not None:
+        if film is not None and film.imdb_id is not None and film.letterboxd_avg_rating is not None:
             resolved[slug] = _to_resolved(film)
         else:
             needs_fetch.append(slug)
@@ -92,6 +92,7 @@ async def resolve_films(
             title = getattr(data, "title", None)
             year = getattr(data, "year", None)
             imdb_id = getattr(data, "imdb_id", None)
+            avg_rating = getattr(data, "letterboxd_avg_rating", None)
 
             existing_by_tmdb = await session.get(Film, tmdb_id)
             if existing_by_tmdb is not None:
@@ -102,6 +103,8 @@ async def resolve_films(
                     existing_by_tmdb.year = year
                 if imdb_id and not existing_by_tmdb.imdb_id:
                     existing_by_tmdb.imdb_id = imdb_id
+                if avg_rating is not None:
+                    existing_by_tmdb.letterboxd_avg_rating = avg_rating
                 row = existing_by_tmdb
             else:
                 row = Film(
@@ -111,6 +114,7 @@ async def resolve_films(
                     year=year,
                     tmdb_type=tmdb_type,
                     imdb_id=imdb_id,
+                    letterboxd_avg_rating=avg_rating,
                 )
                 session.add(row)
             await session.flush()

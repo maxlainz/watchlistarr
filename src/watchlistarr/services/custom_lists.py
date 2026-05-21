@@ -13,7 +13,7 @@ from watchlistarr.models.custom_list_excluded_watchers import CustomListExcluded
 from watchlistarr.models.custom_list_items import CustomListItem
 from watchlistarr.models.custom_list_sources import CustomListSource
 from watchlistarr.models.custom_lists import CustomList
-from watchlistarr.models.enums import CombinationOp, SourceRole
+from watchlistarr.models.enums import CombinationOp, SortOrder, SourceRole
 from watchlistarr.models.films import Film
 from watchlistarr.models.list_items import ListItem
 from watchlistarr.models.watched_films import WatchedFilm
@@ -142,6 +142,33 @@ async def _apply_filters(
     return filtered
 
 
+async def _choose_from_pool(
+    session: AsyncSession, custom_list: CustomList, pool: list[int], n: int
+) -> list[int]:
+    """Picks ``n`` tmdb_ids from ``pool`` honoring ``custom_list.sort_order``.
+
+    For RATING_DESC, returns the top-N by ``Film.letterboxd_avg_rating`` (NULLs last).
+    For every other sort order, falls back to ``random.sample`` (legacy behavior).
+    """
+    if n <= 0 or not pool:
+        return []
+    if custom_list.sort_order is SortOrder.RATING_DESC:
+        rows = (
+            await session.execute(
+                select(Film.tmdb_id)
+                .where(Film.tmdb_id.in_(pool))
+                .order_by(
+                    Film.letterboxd_avg_rating.is_(None),
+                    Film.letterboxd_avg_rating.desc(),
+                    Film.tmdb_id,
+                )
+                .limit(n)
+            )
+        ).all()
+        return [row[0] for row in rows]
+    return random.sample(pool, min(len(pool), n))
+
+
 async def eligible_pool(session: AsyncSession, custom_list: CustomList) -> list[int]:
     universe = await resolve_universe(session, custom_list)
     candidates = await _apply_filters(session, custom_list, universe)
@@ -169,7 +196,7 @@ async def init_items(session: AsyncSession, custom_list: CustomList) -> int:
     if not pool:
         return 0
     cap = custom_list.max_items if custom_list.max_items is not None else len(pool)
-    chosen = random.sample(pool, min(len(pool), cap))
+    chosen = await _choose_from_pool(session, custom_list, pool, cap)
     now = utcnow()
     for pos, tmdb_id in enumerate(chosen):
         session.add(
@@ -224,7 +251,7 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
         return
     pool = await eligible_pool(session, custom_list)
     need = custom_list.max_items - remaining_count
-    chosen = random.sample(pool, min(len(pool), need))
+    chosen = await _choose_from_pool(session, custom_list, pool, need)
     now = utcnow()
     for pos, tmdb_id in enumerate(chosen, start=remaining_count):
         session.add(
@@ -266,7 +293,7 @@ async def rotate(session: AsyncSession, custom_list: CustomList) -> int:
     batch = min(custom_list.rotation_batch_size, len(pool))
     for item in served[:batch]:
         await session.delete(item)
-    chosen = random.sample(pool, batch)
+    chosen = await _choose_from_pool(session, custom_list, pool, batch)
     for pos, tmdb_id in enumerate(chosen):
         session.add(
             CustomListItem(

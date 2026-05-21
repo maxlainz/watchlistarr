@@ -259,6 +259,7 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
                   <option value="letterboxd">Letterboxd order (recommended)</option>
                   <option value="random">Random</option>
                   <option value="reverse">Reverse</option>
+                  <option value="rating_desc">Letterboxd avg rating (high to low)</option>
                 </select>
               </div>
             </div>
@@ -311,8 +312,12 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
                       : (() => {
                           const n = parseInt(yearLastN, 10);
                           const cy = new Date().getFullYear();
-                          return n === 1 ? `= ${cy}` : `= ${cy - n + 1}–${cy}`;
+                          return n === 1 ? `Calendar year ${cy} only` : `Calendar years ${cy - n + 1}–${cy}`;
                         })()}
+                    <br />
+                    <span style={{ color: 'var(--text-faint)' }}>
+                      Note: Letterboxd doesn&apos;t expose exact release dates, so this filters by calendar year (not rolling N days).
+                    </span>
                   </div>
                 </div>
               )}
