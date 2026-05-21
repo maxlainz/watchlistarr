@@ -53,9 +53,7 @@ Array JSON **en la raíz**. No envolver en un objeto.
   {
     "tmdb_id": 1084242,
     "title": "Zootopia 2",
-    "imdb_id": "tt26443597",
-    "poster_url": "http://image.tmdb.org/t/p/w500/oJ7g2CifqpStmoYQyaLQgEU32qO.jpg",
-    "genres": ["animation", "comedy"]
+    "imdb_id": "tt26443597"
   },
   {
     "tmdb_id": 83533,
@@ -64,21 +62,43 @@ Array JSON **en la raíz**. No envolver en un objeto.
 ]
 ```
 
-- **Único campo realmente necesario**: `tmdb_id` (entero). Sin él Radarr no resuelve la película.
+- **Campo crítico**: `imdb_id` (string `tt…`). El parser de Radarr para "Custom List" (`StevenLuParser.cs` / `StevenLuResponse`, verificado en `Radarr/Radarr@develop`) solo lee `title` y `imdb_id`; **`tmdb_id` es ignorado**. Sin `imdb_id` Radarr no resuelve la película y la lista aparece vacía con el error "No results were returned from your import list".
 - **snake_case**, no camelCase. Confirmado por el ejemplo canónico [StevenLu popular-movies](https://s3.amazonaws.com/popular-movies/movies.json) que Radarr consume desde hace años sin tocar.
 - **Content-Type**: `application/json; charset=utf-8`.
 - **HTTP 200** con body válido. Lista vacía (`[]`) es válida.
 
-### Campos opcionales
+### Campos
 
 | Campo | Tipo | Uso |
 |---|---|---|
-| `title` | string | Útil para logs y debug; Radarr lo refresca desde TMDB |
-| `imdb_id` | string `tt…` | Fallback de matching si TMDB falla; omisible |
-| `poster_url` | string | Ignorado por Radarr (lo coge de TMDB); útil solo para la UI propia |
-| `genres` | string[] | Ignorado por Radarr; útil solo para la UI propia |
+| `imdb_id` | string `tt…` | **Requerido**: Radarr lo usa para resolver la película. Si falta, el item se descarta silenciosamente |
+| `title` | string | Útil para logs y debug; Radarr lo refresca desde TMDB tras resolver |
+| `tmdb_id` | int | **Ignorado por Radarr** (StevenLuParser no lo lee). watchlistarr lo sigue sirviendo como ayuda al debug y para futuros consumidores |
 
-watchlistarr puede omitir `imdb_id`, `poster_url` y `genres` sin consecuencias funcionales. Letterboxd no expone IMDb ID directamente — `tmdb_id` solo basta.
+### Por qué `tmdb_id` no basta
+
+El parser real de Radarr es muy minimalista (lo confirmamos en el código fuente):
+
+```csharp
+public class StevenLuResponse {
+    public string title { get; set; }
+    public string imdb_id { get; set; }
+    public string poster_url { get; set; }
+}
+
+foreach (var item in jsonResponse)
+    movies.AddIfNotNull(new ImportListMovie {
+        Title = item.title,
+        ImdbId = item.imdb_id,
+    });
+```
+
+Cualquier campo fuera de `title`, `imdb_id`, `poster_url` se descarta al deserializar. Servir solo `tmdb_id` produce un `ImportListMovie` con `ImdbId = null` para cada item, y Radarr no importa nada.
+
+### Cómo obtenemos el `imdb_id`
+
+Letterboxd expone el IMDb ID en cada ficha de film como link "More at IMDb":
+`<a href="http://www.imdb.com/title/tt6751668/maindetails">...</a>`. `parse_film_page` (en `src/watchlistarr/services/letterboxd/film_page.py`) lo extrae con regex y se persiste en `films.imdb_id` durante la resolución de slug → TMDB.
 
 ## Errores conocidos y pitfalls
 

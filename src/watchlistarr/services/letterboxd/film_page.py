@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from watchlistarr.schemas.letterboxd import FilmPageData
 
 _TITLE_YEAR_RE = re.compile(r"^(.*?)\s*\((\d{4})\)\s*$")
+_IMDB_ID_RE = re.compile(r"imdb\.com/title/(tt\d{7,10})")
 
 
 def parse_film_page(html: str, *, slug: str) -> FilmPageData:
@@ -33,10 +34,16 @@ def parse_film_page(html: str, *, slug: str) -> FilmPageData:
             else:
                 title = str(content).strip()
 
+    imdb_id: str | None = None
+    imdb_match = _IMDB_ID_RE.search(html)
+    if imdb_match:
+        imdb_id = imdb_match.group(1)
+
     return FilmPageData(
         slug=slug,
         tmdb_id=tmdb_id,
         tmdb_type=tmdb_type,
         title=title,
         year=year,
+        imdb_id=imdb_id,
     )

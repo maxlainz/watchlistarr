@@ -15,7 +15,7 @@ async def resolve_film(session: AsyncSession, client: LetterboxdClient, slug: st
     existing = (
         await session.execute(select(Film).where(Film.letterboxd_slug == slug))
     ).scalar_one_or_none()
-    if existing is not None:
+    if existing is not None and existing.imdb_id is not None:
         return existing
 
     logger.info("film.resolve", slug=slug)
@@ -37,6 +37,8 @@ async def resolve_film(session: AsyncSession, client: LetterboxdClient, slug: st
             by_tmdb.title = data.title
         if data.year:
             by_tmdb.year = data.year
+        if data.imdb_id and not by_tmdb.imdb_id:
+            by_tmdb.imdb_id = data.imdb_id
         await session.flush()
         return by_tmdb
 
@@ -46,6 +48,7 @@ async def resolve_film(session: AsyncSession, client: LetterboxdClient, slug: st
         title=data.title or slug,
         year=data.year,
         tmdb_type=data.tmdb_type,
+        imdb_id=data.imdb_id,
     )
     session.add(film)
     await session.flush()

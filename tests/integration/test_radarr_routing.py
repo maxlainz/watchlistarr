@@ -39,10 +39,14 @@ async def _seed_two_users(factory: async_sessionmaker[AsyncSession]) -> None:
         await session.flush()
 
         films = [
-            Film(tmdb_id=10, letterboxd_slug="ten", title="Ten", year=2020),
+            Film(tmdb_id=10, letterboxd_slug="ten", title="Ten", year=2020, imdb_id="tt0000010"),
             Film(tmdb_id=20, letterboxd_slug="twenty", title="Twenty", year=2021),
-            Film(tmdb_id=30, letterboxd_slug="thirty", title="Thirty", year=2022),
-            Film(tmdb_id=40, letterboxd_slug="forty", title="Forty", year=2023),
+            Film(
+                tmdb_id=30, letterboxd_slug="thirty", title="Thirty", year=2022, imdb_id="tt0000030"
+            ),
+            Film(
+                tmdb_id=40, letterboxd_slug="forty", title="Forty", year=2023, imdb_id="tt0000040"
+            ),
         ]
         session.add_all(films)
         await session.flush()
@@ -195,6 +199,11 @@ def test_get_user_watchlist_returns_items(seeded_app: FastAPI) -> None:
     assert isinstance(body, list)
     tmdb_ids = sorted(item["tmdb_id"] for item in body)
     assert tmdb_ids == [10, 20, 30]
+    by_tmdb = {item["tmdb_id"]: item for item in body}
+    assert by_tmdb[10]["imdb_id"] == "tt0000010"
+    assert by_tmdb[30]["imdb_id"] == "tt0000030"
+    # Film 20 doesn't have imdb_id → field omitted via exclude_none.
+    assert "imdb_id" not in by_tmdb[20]
 
 
 def test_get_custom_list_union(seeded_app: FastAPI) -> None:

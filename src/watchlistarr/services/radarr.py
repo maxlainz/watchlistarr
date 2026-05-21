@@ -15,25 +15,31 @@ from watchlistarr.schemas.radarr import RadarrItem
 async def serialize_list(session: AsyncSession, list_id: int) -> list[RadarrItem]:
     rows = (
         await session.execute(
-            select(ListItem.tmdb_id, Film.title)
+            select(ListItem.tmdb_id, Film.title, Film.imdb_id)
             .join(Film, ListItem.tmdb_id == Film.tmdb_id)
             .where(ListItem.list_id == list_id)
             .order_by(ListItem.position, ListItem.tmdb_id)
         )
     ).all()
-    return [RadarrItem(tmdb_id=tmdb_id, title=title) for tmdb_id, title in rows]
+    return [
+        RadarrItem(tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
+        for tmdb_id, title, imdb_id in rows
+    ]
 
 
 async def serialize_custom_list(session: AsyncSession, custom_list_id: int) -> list[RadarrItem]:
     rows = (
         await session.execute(
-            select(CustomListItem.tmdb_id, Film.title)
+            select(CustomListItem.tmdb_id, Film.title, Film.imdb_id)
             .join(Film, CustomListItem.tmdb_id == Film.tmdb_id)
             .where(CustomListItem.custom_list_id == custom_list_id)
             .order_by(CustomListItem.position, CustomListItem.tmdb_id)
         )
     ).all()
-    return [RadarrItem(tmdb_id=tmdb_id, title=title) for tmdb_id, title in rows]
+    return [
+        RadarrItem(tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
+        for tmdb_id, title, imdb_id in rows
+    ]
 
 
 def render_payload(items: list[RadarrItem]) -> bytes:

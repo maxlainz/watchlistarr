@@ -15,6 +15,7 @@ class Film(Base):
     letterboxd_slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(500))
     year: Mapped[int | None] = mapped_column(nullable=True)
+    imdb_id: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
     tmdb_type: Mapped[str] = mapped_column(String(16), default="movie")
     letterboxd_avg_rating: Mapped[float | None] = mapped_column(nullable=True)
     last_resolved_at: Mapped[datetime] = mapped_column(default=utcnow)
