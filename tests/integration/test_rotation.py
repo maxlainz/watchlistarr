@@ -155,6 +155,38 @@ async def test_rotate_respects_interval(session: AsyncSession) -> None:
     assert rotated == 0
 
 
+async def test_letterboxd_sort_picks_top_of_source_order(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="top-letterboxd", max_items=3, sort_order=SortOrder.LETTERBOXD
+    )
+    await init_items(session, cl)
+    items = await serialize_custom_list(session, cl)
+    assert [it.tmdb_id for it in items] == [10, 20, 30]
+
+
+async def test_reverse_sort_picks_bottom_of_source_order(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="reverse-list", max_items=3, sort_order=SortOrder.REVERSE
+    )
+    await init_items(session, cl)
+    items = await serialize_custom_list(session, cl)
+    assert [it.tmdb_id for it in items] == [50, 40, 30]
+
+
+async def test_random_sort_returns_full_subset(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="rand", max_items=3, sort_order=SortOrder.RANDOM
+    )
+    count = await init_items(session, cl)
+    assert count == 3
+    items = await serialize_custom_list(session, cl)
+    assert len(items) == 3
+    assert {it.tmdb_id for it in items}.issubset({10, 20, 30, 40, 50})
+
+
 async def test_year_last_n_uses_relative_window(session: AsyncSession) -> None:
     current_year = utcnow().year
     user = User(letterboxd_username="alice")

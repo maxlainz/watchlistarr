@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.models.base import utcnow
@@ -142,17 +142,52 @@ async def _apply_filters(
     return filtered
 
 
+async def _order_pool_by_source_position(
+    session: AsyncSession,
+    custom_list: CustomList,
+    pool: list[int],
+    *,
+    desc: bool,
+) -> list[int]:
+    """Devuelve los tmdb_ids del pool ordenados por su posición agregada en
+    las include sources del custom list.
+
+    Para ``desc=False`` (LETTERBOXD) usa ``MIN(position)`` ASC — el film toma
+    la posición más temprana en cualquiera de sus listas de origen. Para
+    ``desc=True`` (REVERSE) usa ``MAX(position)`` DESC — los del final primero.
+
+    Films del pool que no aparezcan en ninguna include source (no debería
+    pasar tras ``resolve_universe``) van al final ordenados por ``tmdb_id``.
+    """
+    if not pool:
+        return []
+    include_ids = await _source_list_ids(session, custom_list.id, SourceRole.INCLUDE)
+    if not include_ids:
+        return list(pool)
+    agg = func.max(ListItem.position) if desc else func.min(ListItem.position)
+    order_clause = agg.desc() if desc else agg.asc()
+    rows = (
+        await session.execute(
+            select(ListItem.tmdb_id, agg.label("pos"))
+            .where(ListItem.list_id.in_(include_ids), ListItem.tmdb_id.in_(pool))
+            .group_by(ListItem.tmdb_id)
+            .order_by(order_clause, ListItem.tmdb_id)
+        )
+    ).all()
+    ordered = [row[0] for row in rows]
+    seen = set(ordered)
+    leftovers = sorted(t for t in pool if t not in seen)
+    return ordered + leftovers
+
+
 async def _choose_from_pool(
     session: AsyncSession, custom_list: CustomList, pool: list[int], n: int
 ) -> list[int]:
-    """Picks ``n`` tmdb_ids from ``pool`` honoring ``custom_list.sort_order``.
-
-    For RATING_DESC, returns the top-N by ``Film.letterboxd_avg_rating`` (NULLs last).
-    For every other sort order, falls back to ``random.sample`` (legacy behavior).
-    """
+    """Picks ``n`` tmdb_ids from ``pool`` honoring ``custom_list.sort_order``."""
     if n <= 0 or not pool:
         return []
-    if custom_list.sort_order is SortOrder.RATING_DESC:
+    sort_order = custom_list.sort_order
+    if sort_order is SortOrder.RATING_DESC:
         rows = (
             await session.execute(
                 select(Film.tmdb_id)
@@ -166,6 +201,12 @@ async def _choose_from_pool(
             )
         ).all()
         return [row[0] for row in rows]
+    if sort_order is SortOrder.LETTERBOXD:
+        ordered = await _order_pool_by_source_position(session, custom_list, pool, desc=False)
+        return ordered[:n]
+    if sort_order is SortOrder.REVERSE:
+        ordered = await _order_pool_by_source_position(session, custom_list, pool, desc=True)
+        return ordered[:n]
     return random.sample(pool, min(len(pool), n))
 
 

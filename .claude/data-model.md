@@ -53,7 +53,14 @@ pool      = universe filtered by min_rating, max_rating, year (absoluto o relati
 
 **Filtros relativos** (`year_last_n`, `added_last_n_days`): se resuelven en cada `_apply_filters` contra `utcnow()`, no se persiste un valor derivado. Esto permite que ventanas tipo "watchlist + estrenos del último año" se actualicen solas al cambiar el año. Cuando uno de ellos no es NULL, el filtro absoluto correspondiente (`min_year`/`max_year` o `added_after`/`added_before`) se ignora; el back también fuerza esos absolutos a NULL al guardar para mantener consistencia. **Importante**: el filtro de año es siempre por año **calendario** (no rolling 365 días), porque Letterboxd no expone una `release_date` canónica — solo año. Limitación conocida: `custom_list_items` cacheado puede quedar obsoleto si nadie edita ni rota la lista durante mucho tiempo — el ciclo de vida del cache lo dispara `recalculate()` en cada edición.
 
-**`SortOrder.RATING_DESC`**: cuando una custom list usa este sort, `init_items` / `recalculate` / `rotate` seleccionan top-N por `Film.letterboxd_avg_rating DESC NULLS LAST` en vez de `random.sample`. `serialize_custom_list` también reordena por rating al servir, así que cambios en los ratings se reflejan sin recalcular. Los otros valores del enum (`letterboxd`, `random`, `reverse`) siguen sin aplicarse al servir (deuda pre-existente fuera de scope).
+**`SortOrder`** se aplica en `_choose_from_pool` (selección en `init_items` / `recalculate` / `rotate`), materializando el orden en `CustomListItem.position`:
+
+- `LETTERBOXD`: orden ASC por `MIN(list_items.position)` sobre las include sources — coincide con el orden visible en Letterboxd.
+- `REVERSE`: orden DESC por `MAX(list_items.position)` — los del final de la lista primero.
+- `RANDOM`: `random.sample` del pool.
+- `RATING_DESC`: top-N por `Film.letterboxd_avg_rating DESC NULLS LAST`. Además, `serialize_custom_list` re-ordena por rating al servir, así que cambios en los ratings se reflejan sin recalcular.
+
+Para los tres primeros, `serialize_custom_list` ordena por `CustomListItem.position` (que ya viene en el orden correcto).
 
 Casos comunes:
 
