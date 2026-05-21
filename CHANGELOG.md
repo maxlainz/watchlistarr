@@ -6,6 +6,25 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-21
+
+### Added
+- Compatibilidad con el provider **Custom Lists** de Radarr además de
+  **StevenLu Custom**. Cada item del JSON Radarr incluye ahora `id`
+  (= `tmdb_id`) junto a `tmdb_id`, `title` e `imdb_id`. Newtonsoft.Json
+  del lado de Radarr ignora campos extra, así que el mismo endpoint
+  funciona contra los dos provider; el usuario elige cuál usar en la
+  UI de Radarr. Custom Lists resuelve por TMDB ID directo, sin
+  depender del scrape de `imdb_id` desde la film page.
+- `scripts/smoke.py` asserta que `id == tmdb_id` tanto en listas
+  de usuario como en custom lists multi-source.
+
+### Changed
+- `.claude/radarr-custom-list.md` reescrita: documenta los dos
+  parsers de Radarr (`RadarrListParser` y `StevenLuParser`) en
+  paralelo, con un único ejemplo JSON compatible con ambos.
+- README sección "Connecting Radarr" menciona ambas opciones.
+
 ## [1.0.2] - 2026-05-21
 
 ### Fixed

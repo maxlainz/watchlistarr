@@ -209,6 +209,8 @@ def _exercise(base_url: str) -> None:
     items = r.json()
     _assert(isinstance(items, list) and len(items) == 3, f"alice watchlist len: {len(items)}")
     _assert(all(isinstance(i["tmdb_id"], int) for i in items), "tmdb_id no es int")
+    _assert(all(isinstance(i["id"], int) for i in items), "id no es int")
+    _assert(all(i["id"] == i["tmdb_id"] for i in items), "id != tmdb_id")
     by_tmdb = {i["tmdb_id"]: i for i in items}
     _assert(by_tmdb[10].get("imdb_id") == "tt0000010", f"film 10 sin imdb_id: {by_tmdb[10]}")
     _assert(by_tmdb[20].get("imdb_id") == "tt0000020", f"film 20 sin imdb_id: {by_tmdb[20]}")
@@ -217,7 +219,9 @@ def _exercise(base_url: str) -> None:
 
     r = httpx.get(f"{base_url}/lists/house/")
     _assert(r.status_code == 200, "house custom list != 200")
-    _assert(len(r.json()) == 4, f"house items != 4: {len(r.json())}")
+    house_items = r.json()
+    _assert(len(house_items) == 4, f"house items != 4: {len(house_items)}")
+    _assert(all(i["id"] == i["tmdb_id"] for i in house_items), "house: id != tmdb_id")
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")
     _assert(r.status_code == 404, "404 esperado para user inexistente")
