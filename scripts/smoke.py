@@ -74,10 +74,28 @@ async def _seed(db_url: str) -> None:
             await session.flush()
             session.add_all(
                 [
-                    Film(tmdb_id=10, letterboxd_slug="ten", title="Ten", year=2020),
-                    Film(tmdb_id=20, letterboxd_slug="twenty", title="Twenty", year=2021),
+                    Film(
+                        tmdb_id=10,
+                        letterboxd_slug="ten",
+                        title="Ten",
+                        year=2020,
+                        imdb_id="tt0000010",
+                    ),
+                    Film(
+                        tmdb_id=20,
+                        letterboxd_slug="twenty",
+                        title="Twenty",
+                        year=2021,
+                        imdb_id="tt0000020",
+                    ),
                     Film(tmdb_id=30, letterboxd_slug="thirty", title="Thirty", year=2022),
-                    Film(tmdb_id=40, letterboxd_slug="forty", title="Forty", year=2023),
+                    Film(
+                        tmdb_id=40,
+                        letterboxd_slug="forty",
+                        title="Forty",
+                        year=2023,
+                        imdb_id="tt0000040",
+                    ),
                 ]
             )
             await session.flush()
@@ -191,6 +209,11 @@ def _exercise(base_url: str) -> None:
     items = r.json()
     _assert(isinstance(items, list) and len(items) == 3, f"alice watchlist len: {len(items)}")
     _assert(all(isinstance(i["tmdb_id"], int) for i in items), "tmdb_id no es int")
+    by_tmdb = {i["tmdb_id"]: i for i in items}
+    _assert(by_tmdb[10].get("imdb_id") == "tt0000010", f"film 10 sin imdb_id: {by_tmdb[10]}")
+    _assert(by_tmdb[20].get("imdb_id") == "tt0000020", f"film 20 sin imdb_id: {by_tmdb[20]}")
+    # Film 30 no tiene imdb_id en el seed → debe omitirse del JSON.
+    _assert("imdb_id" not in by_tmdb[30], f"film 30 no debería tener imdb_id: {by_tmdb[30]}")
 
     r = httpx.get(f"{base_url}/lists/house/")
     _assert(r.status_code == 200, "house custom list != 200")

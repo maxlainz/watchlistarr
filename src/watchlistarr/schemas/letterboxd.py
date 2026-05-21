@@ -31,6 +31,7 @@ class FilmPageData:
     tmdb_type: str
     title: str | None
     year: int | None
+    imdb_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
