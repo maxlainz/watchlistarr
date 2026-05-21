@@ -40,8 +40,14 @@ async def engine(db_url: str) -> AsyncIterator[AsyncEngine]:
 
 
 @pytest.fixture
-async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+def factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.fixture
+async def session(
+    factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
     async with factory() as s:
         yield s
 

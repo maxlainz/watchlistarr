@@ -13,12 +13,13 @@ from watchlistarr.services.scrape.audit import with_scrape_audit
 async def test_with_scrape_audit_records_success(engine: AsyncEngine) -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-    async def body(session: AsyncSession) -> int:
-        session.add(User(letterboxd_username="alice"))
-        await session.flush()
+    async def work() -> int:
+        async with factory() as s:
+            s.add(User(letterboxd_username="alice"))
+            await s.commit()
         return 42
 
-    result = await with_scrape_audit(factory, ScrapeSource.WATCHLIST, target_id=None, body=body)
+    result = await with_scrape_audit(factory, ScrapeSource.WATCHLIST, target_id=None, coro=work())
     assert result == 42
     async with factory() as s:
         runs = list((await s.execute(select(ScrapeRun))).scalars().all())
@@ -29,21 +30,17 @@ async def test_with_scrape_audit_records_success(engine: AsyncEngine) -> None:
     assert len(users) == 1
 
 
-async def test_with_scrape_audit_records_error_and_rollbacks(engine: AsyncEngine) -> None:
+async def test_with_scrape_audit_records_error(engine: AsyncEngine) -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-    async def body(session: AsyncSession) -> None:
-        session.add(User(letterboxd_username="bob"))
-        await session.flush()
+    async def work() -> None:
         raise RuntimeError("kaboom")
 
     with pytest.raises(RuntimeError, match="kaboom"):
-        await with_scrape_audit(factory, ScrapeSource.RSS, target_id=1, body=body)
+        await with_scrape_audit(factory, ScrapeSource.RSS, target_id=1, coro=work())
 
     async with factory() as s:
         runs = list((await s.execute(select(ScrapeRun))).scalars().all())
-        users = list((await s.execute(select(User))).scalars().all())
     assert len(runs) == 1
     assert runs[0].status is ScrapeStatus.ERROR
     assert "kaboom" in (runs[0].error or "")
-    assert users == []

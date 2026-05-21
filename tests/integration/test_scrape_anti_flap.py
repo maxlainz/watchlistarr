@@ -10,6 +10,7 @@ from watchlistarr.models.lists import List as ListModel
 from watchlistarr.models.users import User
 from watchlistarr.models.watched_films import WatchedFilm
 from watchlistarr.services.scrape.anti_flap import reconcile_full_scrape
+from watchlistarr.services.scrape.film_resolver import ResolvedFilm
 
 
 async def _make_user_list(session: AsyncSession) -> ListModel:
@@ -57,7 +58,9 @@ async def test_anti_flap_removes_immediately_when_watched(session: AsyncSession)
 async def test_anti_flap_detects_rename_and_keeps(session: AsyncSession) -> None:
     lst = await _make_user_list(session)
     await _add_item(session, lst, 200, "old-slug", "Foo", 2020)
-    renamed_film = Film(tmdb_id=999, letterboxd_slug="new-slug", title="Foo", year=2020)
+    renamed_film = ResolvedFilm(
+        tmdb_id=999, letterboxd_slug="new-slug", title="Foo", year=2020, imdb_id=None
+    )
 
     await reconcile_full_scrape(
         session,
