@@ -867,6 +867,10 @@ async def activity_tail(
             "level": line.level,
             "src": line.src,
             "message": line.message,
+            "event": line.event,
+            "fields": line.fields,
+            "humanMessage": line.human_message or line.message,
+            "excInfo": line.exc_info,
         }
         for line in lines
     ]

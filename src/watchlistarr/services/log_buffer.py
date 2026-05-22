@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import itertools
 import logging
-import re
 import threading
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
+
+# Loggers cuyos records ya fueron capturados estructuradamente por
+# `buffer_capture_processor` en el pipeline structlog. El BufferHandler descarta
+# estos para evitar doble captura. Cubre todos los módulos del package
+# (`watchlistarr.*`) que usan `structlog.get_logger(__name__)`.
+_STRUCTLOG_PREFIXES: tuple[str, ...] = ("watchlistarr",)
+# Tope conservador para exc_info en buffer (evita líneas de ~MB tras un crash
+# repetido). 4096 chars suele cubrir ~50 frames de Python.
+_EXC_INFO_LIMIT = 4096
 
 
 @dataclass(frozen=True)
@@ -16,6 +25,10 @@ class LogLine:
     message: str
     ts: datetime
     src: str
+    event: str | None = None
+    fields: dict[str, Any] = field(default_factory=dict)
+    human_message: str = ""
+    exc_info: str | None = None
 
 
 class _LogBuffer:
@@ -25,6 +38,7 @@ class _LogBuffer:
         self._lock = threading.Lock()
 
     def append(self, level: str, message: str, src: str) -> None:
+        """Legacy path: usado por BufferHandler para logs no-structlog."""
         with self._lock:
             self._lines.append(
                 LogLine(
@@ -33,6 +47,39 @@ class _LogBuffer:
                     message=message,
                     ts=datetime.now(tz=UTC),
                     src=src,
+                    event=None,
+                    fields={},
+                    human_message=message,
+                    exc_info=None,
+                )
+            )
+
+    def append_structured(
+        self,
+        *,
+        level: str,
+        event: str | None,
+        fields: dict[str, Any],
+        human_message: str,
+        raw_message: str,
+        ts: datetime,
+        src: str,
+        exc_info: str | None,
+    ) -> None:
+        if exc_info is not None and len(exc_info) > _EXC_INFO_LIMIT:
+            exc_info = exc_info[:_EXC_INFO_LIMIT] + "\n… (truncated)"
+        with self._lock:
+            self._lines.append(
+                LogLine(
+                    seq=next(self._counter),
+                    level=level,
+                    message=raw_message,
+                    ts=ts,
+                    src=src,
+                    event=event,
+                    fields=dict(fields),
+                    human_message=human_message,
+                    exc_info=exc_info,
                 )
             )
 
@@ -64,31 +111,26 @@ def get_buffer() -> _LogBuffer:
     return _buffer
 
 
-# structlog renderer emits "key=value" pairs; the event key carries the dotted
-# source (e.g. "letterboxd.client"). Pull it out so the activity tail can
-# colour-group lines by component without re-running the structlog processors.
-_EVENT_RE = re.compile(r"\bevent=(?:'([^']*)'|\"([^\"]*)\"|(\S+))")
-
-
-def _extract_src(record: logging.LogRecord, fallback_msg: str) -> str:
-    match = _EVENT_RE.search(fallback_msg)
-    if match is not None:
-        event = next((g for g in match.groups() if g), None)
-        if event:
-            return event.split(".", 1)[0]
-    name = record.name or "root"
-    return name.rsplit(".", 1)[-1]
-
-
 class BufferHandler(logging.Handler):
-    """Logging handler that mirrors log records into the in-memory buffer."""
+    """Espeja al buffer logs que NO pasaron por el pipeline structlog.
+
+    Los logs de structlog son capturados estructuradamente por
+    `buffer_capture_processor` antes de llegar al stdlib handler. Cuando el
+    processor escribe al buffer, marca el `LogRecord` con `_CAPTURED_ATTR=True`;
+    aquí lo detectamos y descartamos para no duplicar. Logs de alembic, uvicorn,
+    sqlalchemy, etc. siguen entrando por esta vía y se almacenan sin `event`
+    ni `fields`.
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
+        name = record.name or ""
+        if name.startswith(_STRUCTLOG_PREFIXES):
+            return
         try:
             msg = self.format(record)
         except Exception:
             msg = record.getMessage()
-        src = _extract_src(record, msg)
+        src = name.rsplit(".", 1)[-1] or "root"
         _buffer.append(record.levelname, msg, src)
 
 

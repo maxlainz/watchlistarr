@@ -84,12 +84,41 @@ def test_custom_lists_endpoint(app: "FastAPI") -> None:
 
 
 def test_activity_endpoint(app: "FastAPI") -> None:
+    from datetime import UTC, datetime
+
+    from watchlistarr.services.log_buffer import get_buffer
+
+    # Inyectamos un log estructurado y otro legacy para verificar el shape de
+    # ambos paths en la respuesta del endpoint.
+    buf = get_buffer()
+    buf.append_structured(
+        level="INFO",
+        event="watchlist.full_sync.start",
+        fields={"user_id": 1, "list_id": 2},
+        human_message="Watchlist full sync starting (user 1, list 2)",
+        raw_message="raw",
+        ts=datetime.now(tz=UTC),
+        src="watchlist",
+        exc_info=None,
+    )
+    buf.append("INFO", "alembic message", "migration")
+
     with TestClient(app) as client:
         response = client.get("/api/v1/activity")
     assert response.status_code == 200
     body = response.json()
     assert "lines" in body
     assert "latestSeq" in body
+    structured = next(
+        line for line in body["lines"] if line.get("event") == "watchlist.full_sync.start"
+    )
+    assert structured["fields"] == {"user_id": 1, "list_id": 2}
+    assert structured["humanMessage"] == "Watchlist full sync starting (user 1, list 2)"
+    assert structured["excInfo"] is None
+    legacy = next(line for line in body["lines"] if line.get("src") == "migration")
+    assert legacy["event"] is None
+    assert legacy["fields"] == {}
+    assert legacy["humanMessage"] == "alembic message"
 
 
 def test_legacy_html_routes_gone(app: "FastAPI") -> None:
