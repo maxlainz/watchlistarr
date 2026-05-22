@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
@@ -47,7 +48,10 @@ class JobScheduler:
         self._scheduler.start()
 
     async def shutdown(self) -> None:
-        self._scheduler.shutdown(wait=True)
+        # ``AsyncIOScheduler.shutdown(wait=True)`` es síncrono y bloquea el
+        # event loop esperando jobs en vuelo. En el lifespan de FastAPI esto
+        # retrasa el cierre limpio — delegamos al threadpool.
+        await asyncio.to_thread(self._scheduler.shutdown, True)
 
     @property
     def jobs(self) -> list[Any]:
