@@ -311,6 +311,16 @@ async def test_year_last_n_uses_relative_window(session: AsyncSession) -> None:
     assert sorted(pool) == [1, 2, 3]
 
 
+async def test_year_last_n_zero_clamps_to_one(session: AsyncSession) -> None:
+    """Regresión: ``year_last_n=0`` inyectado en DB no debe dar pool vacío.
+    Antes producía ``year_min = current+1 > year_max = current``."""
+    current_year = utcnow().year
+    _, parent = await _seed_user_list(session, [1], year=current_year)
+    cl = await _make_custom_list(session, parent, slug="clamp", year_last_n=0)
+    pool = await resolve_full_pool(session, cl)
+    assert pool == [1]
+
+
 async def test_year_last_n_overrides_min_max_year(session: AsyncSession) -> None:
     current_year = utcnow().year
     _, parent = await _seed_user_list(session, [1], year=current_year)
@@ -429,6 +439,72 @@ async def test_rotate_swaps_oldest(session: AsyncSession) -> None:
     assert 1 not in tmdb_ids
     assert 2 in tmdb_ids
     assert len(tmdb_ids) == 2
+
+
+async def test_rotate_leaves_positions_unique_and_consecutive(session: AsyncSession) -> None:
+    """Tras varias rotaciones, ``position`` debe estar reindexada a [0..N-1]
+    sin duplicados. Regresión: antes los items conservados mantenían su
+    position original mientras los nuevos arrancaban en 0, colisionando."""
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5, 6, 7])
+    cl = await _make_custom_list(
+        session,
+        parent,
+        slug="rot-positions",
+        max_items=3,
+        rotation_enabled=True,
+        rotation_interval=timedelta(seconds=1),
+        rotation_batch_size=2,
+        last_rotated_at=utcnow() - timedelta(hours=1),
+    )
+    await init_items(session, cl)
+
+    # Forzar served_since más antiguo a los items iniciales y permitir rotación.
+    items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for it in items:
+        it.served_since = utcnow() - timedelta(days=2)
+    cl.last_rotated_at = utcnow() - timedelta(hours=1)
+    await session.flush()
+
+    rotated_first = await rotate(session, cl)
+    assert rotated_first == 2
+
+    # Reabrir ventana de rotación y rotar de nuevo.
+    cl.last_rotated_at = utcnow() - timedelta(hours=1)
+    items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for it in items:
+        it.served_since = utcnow() - timedelta(days=1)
+    await session.flush()
+
+    rotated_second = await rotate(session, cl)
+    assert rotated_second >= 1
+
+    final_items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    positions = sorted(it.position for it in final_items)
+    assert positions == list(range(len(positions)))
 
 
 async def test_rotation_tick_handles_naive_datetime_from_db(

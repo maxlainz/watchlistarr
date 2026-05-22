@@ -614,6 +614,15 @@ async def custom_list_detail(
 
 
 def _parse_optional_int(value: Any) -> int | None:
+    """Devuelve ``None`` para ``None``, ``""`` y **también ``0``**.
+
+    La UI envía ``0`` cuando el usuario vacía un campo numérico (maxItems,
+    rotationInterval, yearLastN, etc.). El backend lo interpreta como
+    "sin valor". Consecuencia: no se puede setear ``maxItems=0`` legítimamente
+    vía API — usar ``None`` para "sin tope". Difiere de
+    ``_parse_optional_float`` que sí distingue ``0.0`` de ``None`` (necesario
+    para ``minRating=0``).
+    """
     if value in (None, "", 0):
         return None
     try:
@@ -623,6 +632,9 @@ def _parse_optional_int(value: Any) -> int | None:
 
 
 def _parse_optional_float(value: Any) -> float | None:
+    """Devuelve ``None`` para ``None`` y ``""``. ``0.0`` se preserva como
+    valor real (necesario para ``minRating=0`` en filtros de custom list).
+    """
     if value in (None, ""):
         return None
     try:
