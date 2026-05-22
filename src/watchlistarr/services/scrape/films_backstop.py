@@ -30,7 +30,13 @@ async def backstop_films_for_user(
 
     resolved = await resolve_films(factory, client, slugs)
     if not resolved:
-        logger.info("films_backstop.done", user_id=user.id, items=len(refs), inserted=0)
+        logger.info(
+            "films_backstop.done",
+            user_id=user.id,
+            username=user.letterboxd_username,
+            items=len(refs),
+            inserted=0,
+        )
         return
 
     tmdb_ids = [film.tmdb_id for film in resolved.values()]
@@ -70,4 +76,10 @@ async def backstop_films_for_user(
 
         await session.commit()
 
-    logger.info("films_backstop.done", user_id=user.id, items=len(refs), inserted=inserted)
+    logger.info(
+        "films_backstop.done",
+        user_id=user.id,
+        username=user.letterboxd_username,
+        items=len(refs),
+        inserted=inserted,
+    )

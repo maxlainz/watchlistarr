@@ -125,12 +125,18 @@ async def sync_watchlist_full(
         return
     username, user_id = owner
 
-    logger.info("watchlist.full_sync.start", user_id=user_id, list_id=list_id)
+    logger.info(
+        "watchlist.full_sync.start",
+        user_id=user_id,
+        username=username,
+        list_id=list_id,
+    )
     all_slugs = await _fetch_all_pages(client, username)
 
     logger.info(
         "watchlist.full_sync.resolving",
         user_id=user_id,
+        username=username,
         list_id=list_id,
         total_slugs=len(all_slugs),
     )
@@ -155,6 +161,7 @@ async def sync_watchlist_full(
     logger.info(
         "watchlist.full_sync",
         user_id=user_id,
+        username=username,
         list_id=list_id,
         slugs=len(all_slugs),
         resolved=len(resolved),
@@ -187,6 +194,7 @@ async def sync_watchlist_incremental(
     logger.info(
         "watchlist.incremental_sync",
         user_id=user_id,
+        username=username,
         list_id=list_id,
         slugs=len(page_slugs),
     )

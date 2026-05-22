@@ -269,6 +269,10 @@ def _exercise(base_url: str) -> None:
     _assert(r.status_code == 200, f"activity != 200: {r.status_code}")
     payload = r.json()
     _assert("lines" in payload and "latestSeq" in payload, "activity payload incompleto")
+    # Schema extendido: cada línea expone event/fields/humanMessage/excInfo.
+    for line in payload["lines"]:
+        for key in ("event", "fields", "humanMessage", "excInfo"):
+            _assert(key in line, f"activity line missing {key}: {line}")
 
     # Radarr endpoints (DB-authoritative).
     r = httpx.get(f"{base_url}/alice/watchlist/")

@@ -90,10 +90,12 @@ class JobScheduler:
             _run_rotation_tick,
             _seconds(env.rotation_tick_interval),
             self._factory,
+            name="Custom list rotation tick",
         )
 
         for user in users:
             uid = user.id
+            username = user.letterboxd_username
             self._add(
                 f"rss-{uid}",
                 _run_rss,
@@ -101,6 +103,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
+                name=f"RSS poll · {username}",
             )
             self._add(
                 f"discovery-{uid}",
@@ -109,6 +112,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
+                name=f"List discovery · {username}",
             )
             self._add(
                 f"films-backstop-{uid}",
@@ -117,6 +121,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
+                name=f"Films backstop · {username}",
             )
             if watchlist_enabled.get(uid, False):
                 self._add(
@@ -126,6 +131,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     uid,
+                    name=f"Watchlist incremental sync · {username}",
                 )
                 self._add(
                     f"watchlist-full-{uid}",
@@ -134,6 +140,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     uid,
+                    name=f"Watchlist full sync · {username}",
                 )
             for lst in lists_by_user.get(uid, []):
                 self._add(
@@ -143,6 +150,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     lst.id,
+                    name=f"List incremental sync · {username}/{lst.slug}",
                 )
                 self._add(
                     f"list-full-{lst.id}",
@@ -151,6 +159,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     lst.id,
+                    name=f"List full sync · {username}/{lst.slug}",
                 )
 
         logger.info("scheduler.synced", jobs=len(self._scheduler.get_jobs()))
@@ -161,12 +170,14 @@ class JobScheduler:
         func: Callable[..., Awaitable[Any]],
         seconds: int,
         *args: Any,
+        name: str,
     ) -> None:
         self._scheduler.add_job(
             func,
             trigger=IntervalTrigger(seconds=seconds),
             args=list(args),
             id=job_id,
+            name=name,
             replace_existing=True,
             coalesce=True,
             max_instances=1,
