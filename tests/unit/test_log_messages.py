@@ -100,7 +100,7 @@ def test_humanize_uses_slug_title_for_list_events() -> None:
         {"slug": "favorites", "list_id": 5, "resolved": 10, "slugs": 12},
         "raw",
     )
-    assert msg == "List 'Favorites' full sync done — 10/12 resolved"
+    assert msg == "List full sync done — Favorites · 10/12 resolved"
 
 
 def test_humanize_falls_back_when_slug_missing_in_field() -> None:
@@ -113,24 +113,24 @@ def test_humanize_falls_back_when_slug_missing_in_field() -> None:
     ("raw", "expected"),
     [
         (
-            'Job "Watchlist incremental sync (alice) (trigger: interval[1:00:00], '
+            'Job "Watchlist incremental sync · alice (trigger: interval[1:00:00], '
             'next run at: 2026-05-22 17:05:23 UTC)" executed successfully',
-            "Job 'Watchlist incremental sync (alice)' finished",
+            "Job finished — Watchlist incremental sync · alice",
         ),
         (
-            'Job "List full sync (bob/favs) (trigger: interval[6:00:00], '
+            'Job "List full sync · bob/favs (trigger: interval[6:00:00], '
             'next run at: 2026-05-22 23:05:23 UTC)" raised an exception: boom',
-            "Job 'List full sync (bob/favs)' raised an exception",
+            "Job raised an exception — List full sync · bob/favs",
         ),
         (
-            'Execution of job "RSS poll (alice) (trigger: interval[0:01:00], '
+            'Execution of job "RSS poll · alice (trigger: interval[0:01:00], '
             'next run at: 2026-05-22 17:06:23 UTC)" skipped: maximum number of '
             "running instances reached (1)",
-            "Skipped job 'RSS poll (alice)' (concurrent run still in progress)",
+            "Job skipped — RSS poll · alice · concurrent run still in progress",
         ),
         (
             'Added job "Custom list rotation tick" to job store "default"',
-            "Scheduled job 'Custom list rotation tick'",
+            "Scheduled job — Custom list rotation tick",
         ),
         (
             "Adding job tentatively -- it will be properly scheduled when the scheduler starts",

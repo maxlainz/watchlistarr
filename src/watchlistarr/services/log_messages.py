@@ -32,14 +32,14 @@ MESSAGES: dict[str, str] = {
     # onboarding
     "initial_run.background.start": "Initial run started for {user_label}",
     "initial_run.background.done": "Initial run finished for {user_label}",
-    "initial_run.step_failed": "Initial run step '{source}' failed",
+    "initial_run.step_failed": "Initial run step failed — {source}",
     "toggle.immediate_sync_failed": "Immediate sync after toggle failed",
     # letterboxd client
     "letterboxd.forbidden": "Letterboxd rejected request — 403 Forbidden",
     "letterboxd.retry_5xx": "Retrying Letterboxd request — status {status}, attempt {attempt}",
     # discovery
-    "discovery.new_list": "Discovered new list '{slug_title}' for {user_label}",
-    "discovery.disabled_missing": "Disabled missing list '{slug_title}' for {user_label}",
+    "discovery.new_list": "Discovered new list — {slug_title} for {user_label}",
+    "discovery.disabled_missing": "Disabled missing list — {slug_title} for {user_label}",
     # watchlist scraper
     "watchlist.full_sync.start": "Watchlist full sync starting for {user_label}",
     "watchlist.full_sync.page": "Watchlist page {page}/{total_pages} fetched — {page_items} items",
@@ -47,8 +47,8 @@ MESSAGES: dict[str, str] = {
     "watchlist.full_sync": "Watchlist full sync done — {resolved}/{slugs} resolved",
     "watchlist.incremental_sync": "Watchlist incremental sync done — {slugs} items",
     # list scraper
-    "list.full_sync": "List '{slug_title}' full sync done — {resolved}/{slugs} resolved",
-    "list.incremental_sync": "List '{slug_title}' incremental sync done — {slugs} items",
+    "list.full_sync": "List full sync done — {slug_title} · {resolved}/{slugs} resolved",
+    "list.incremental_sync": "List incremental sync done — {slug_title} · {slugs} items",
     # anti-flap
     "anti_flap.removed_watched": "Anti-flap: removed watched film",
     "anti_flap.rename_detected": "Anti-flap: rename detected — tmdb {old_tmdb_id} → {new_tmdb_id}",
@@ -56,8 +56,8 @@ MESSAGES: dict[str, str] = {
     # custom lists
     "custom_list.init": "Custom list initialised — {chosen} films",
     "custom_list.rotated": "Custom list rotated — {rotated} films swapped",
-    "custom_list.created": "Custom list '{slug_title}' created",
-    "custom_list.updated": "Custom list '{slug_title}' updated",
+    "custom_list.created": "Custom list created — {slug_title}",
+    "custom_list.updated": "Custom list updated — {slug_title}",
     # rss / backfills
     "rss.poll": "RSS poll for {user_label} — {new} new of {total}",
     "rating_backfill.done": "Rating backfill done — {enriched}/{attempted} enriched",
@@ -66,7 +66,7 @@ MESSAGES: dict[str, str] = {
     # films / users
     "film.resolve": "Resolving film {slug_title}",
     "film.skipped": "Skipped film {slug_title}",
-    "user.added": "User '{username}' added",
+    "user.added": "User added — {username}",
 }
 
 
@@ -145,23 +145,23 @@ EXTERNAL_RULES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
     # APScheduler — job lifecycle
     (
         re.compile(r'^Job "(.+?) \(trigger:.+?\)" executed successfully$'),
-        lambda m: f"Job '{m.group(1)}' finished",
+        lambda m: f"Job finished — {m.group(1)}",
     ),
     (
         re.compile(r'^Job "(.+?) \(trigger:.+?\)" raised an exception'),
-        lambda m: f"Job '{m.group(1)}' raised an exception",
+        lambda m: f"Job raised an exception — {m.group(1)}",
     ),
     (
         re.compile(r'^Execution of job "(.+?) \(trigger:.+?\)" skipped'),
-        lambda m: f"Skipped job '{m.group(1)}' (concurrent run still in progress)",
+        lambda m: f"Job skipped — {m.group(1)} · concurrent run still in progress",
     ),
     (
         re.compile(r'^Job "(.+?)" has already reached its maximum number of instances'),
-        lambda m: f"Job '{m.group(1)}' reached max concurrent instances",
+        lambda m: f"Job reached max concurrent instances — {m.group(1)}",
     ),
     (
         re.compile(r'^Added job "(.+?)" to job store'),
-        lambda m: f"Scheduled job '{m.group(1)}'",
+        lambda m: f"Scheduled job — {m.group(1)}",
     ),
     (
         re.compile(r"^Removed job (\S+)"),

@@ -119,7 +119,7 @@ def test_buffer_handler_humanizes_apscheduler_messages(monkeypatch) -> None:
     handler.emit(_record("apscheduler.executors.default", logging.INFO, raw))
     [entry] = captured
     assert entry["raw_message"] == raw
-    assert entry["human_message"] == "Job 'Watchlist incremental sync · alice' finished"
+    assert entry["human_message"] == "Job finished — Watchlist incremental sync · alice"
 
 
 def test_buffer_handler_suppresses_running_job(monkeypatch) -> None:
