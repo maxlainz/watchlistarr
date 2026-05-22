@@ -103,7 +103,11 @@ async def _apply_filters(
         return []
     now = utcnow()
     if custom_list.year_last_n is not None:
-        year_min: int | None = now.year - custom_list.year_last_n + 1
+        # Clamp a >=1 — un 0 inyectado vía DB/seed daría year_min > year_max
+        # (filtro vacío silencioso). El endpoint ya lo normaliza, pero
+        # defendemos al servicio.
+        last_n = max(1, custom_list.year_last_n)
+        year_min: int | None = now.year - last_n + 1
         year_max: int | None = now.year
     else:
         year_min = custom_list.min_year
@@ -255,6 +259,33 @@ async def init_items(session: AsyncSession, custom_list: CustomList) -> int:
     return len(chosen)
 
 
+async def _reindex_positions(session: AsyncSession, custom_list_id: int) -> None:
+    """Reasigna ``position`` a [0..N-1] consecutivo.
+
+    Tras delete+insert en ``rotate`` o ``recalculate``, las positions pueden quedar
+    duplicadas (los inserts arrancan en 0 mientras los items conservados retienen
+    su position original). Orden estable: los más recientes por ``served_since``
+    primero — lo que coincide con la intención de poner ítems nuevos al principio.
+    """
+    items = list(
+        (
+            await session.execute(
+                select(CustomListItem)
+                .where(CustomListItem.custom_list_id == custom_list_id)
+                .order_by(
+                    CustomListItem.served_since.desc(),
+                    CustomListItem.position,
+                    CustomListItem.tmdb_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for new_pos, item in enumerate(items):
+        item.position = new_pos
+
+
 async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
     """Tras editar filtros / sources / max_items: eliminar lo que ya no califica,
     rellenar hasta max_items con elementos del pool restante."""
@@ -300,8 +331,12 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
             )
         )
         await session.flush()
+        await _reindex_positions(session, custom_list.id)
+        await session.flush()
         return
     if remaining_count == custom_list.max_items:
+        await _reindex_positions(session, custom_list.id)
+        await session.flush()
         return
     pool = await eligible_pool(session, custom_list)
     need = custom_list.max_items - remaining_count
@@ -316,6 +351,8 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
                 position=pos,
             )
         )
+    await session.flush()
+    await _reindex_positions(session, custom_list.id)
     await session.flush()
 
 
@@ -358,6 +395,8 @@ async def rotate(session: AsyncSession, custom_list: CustomList) -> int:
             )
         )
     custom_list.last_rotated_at = now
+    await session.flush()
+    await _reindex_positions(session, custom_list.id)
     await session.flush()
     logger.info("custom_list.rotated", custom_list_id=custom_list.id, rotated=batch)
     return batch
