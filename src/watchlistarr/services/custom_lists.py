@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import func, select
@@ -310,10 +310,10 @@ async def rotate(session: AsyncSession, custom_list: CustomList) -> int:
     if not custom_list.rotation_enabled or custom_list.rotation_interval is None:
         return 0
     now = utcnow()
-    if (
-        custom_list.last_rotated_at is not None
-        and custom_list.last_rotated_at + custom_list.rotation_interval > now
-    ):
+    last_rotated = custom_list.last_rotated_at
+    if last_rotated is not None and last_rotated.tzinfo is None:
+        last_rotated = last_rotated.replace(tzinfo=UTC)
+    if last_rotated is not None and last_rotated + custom_list.rotation_interval > now:
         return 0
     pool = await eligible_pool(session, custom_list)
     if not pool:
