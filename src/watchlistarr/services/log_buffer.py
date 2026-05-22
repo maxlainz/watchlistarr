@@ -131,7 +131,19 @@ class BufferHandler(logging.Handler):
         except Exception:
             msg = record.getMessage()
         src = name.rsplit(".", 1)[-1] or "root"
-        _buffer.append(record.levelname, msg, src)
+        # Import local para evitar ciclo (log_messages no depende de log_buffer).
+        from watchlistarr.services.log_messages import humanize_external
+
+        _buffer.append_structured(
+            level=record.levelname,
+            event=None,
+            fields={},
+            human_message=humanize_external(msg),
+            raw_message=msg,
+            ts=datetime.now(tz=UTC),
+            src=src,
+            exc_info=None,
+        )
 
 
 def install_buffer_handler() -> BufferHandler:

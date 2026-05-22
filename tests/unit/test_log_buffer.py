@@ -76,20 +76,50 @@ def test_legacy_append_keeps_back_compat_fields() -> None:
 def test_buffer_handler_skips_structlog_records(monkeypatch) -> None:
     """Records de loggers `watchlistarr.*` se asume que ya pasaron por el
     structlog processor — el handler debe descartarlos para no duplicar."""
-    captured: list[tuple[str, str, str]] = []
+    captured: list[dict] = []
+
+    def fake_append_structured(self, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+
     monkeypatch.setattr(
         "watchlistarr.services.log_buffer._buffer",
-        type(
-            "Fake",
-            (),
-            {"append": lambda self, level, msg, src: captured.append((level, msg, src))},
-        )(),
+        type("Fake", (), {"append_structured": fake_append_structured})(),
     )
     handler = BufferHandler()
     handler.setFormatter(logging.Formatter("%(message)s"))
     handler.emit(_record("watchlistarr.scrape.watchlist", logging.INFO, "structlog log"))
     handler.emit(_record("alembic.runtime", logging.INFO, "alembic log"))
-    assert captured == [("INFO", "alembic log", "runtime")]
+    assert len(captured) == 1
+    entry = captured[0]
+    assert entry["level"] == "INFO"
+    assert entry["raw_message"] == "alembic log"
+    assert entry["human_message"] == "alembic log"  # no regla matchea
+    assert entry["src"] == "runtime"
+    assert entry["event"] is None
+    assert entry["fields"] == {}
+
+
+def test_buffer_handler_humanizes_apscheduler_messages(monkeypatch) -> None:
+    """Mensajes APScheduler que matchean EXTERNAL_RULES son reescritos."""
+    captured: list[dict] = []
+
+    def fake_append_structured(self, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "watchlistarr.services.log_buffer._buffer",
+        type("Fake", (), {"append_structured": fake_append_structured})(),
+    )
+    handler = BufferHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    raw = (
+        'Job "Watchlist incremental sync (alice) (trigger: interval[1:00:00], '
+        'next run at: 2026-05-22 17:05:23 UTC)" executed successfully'
+    )
+    handler.emit(_record("apscheduler.executors.default", logging.INFO, raw))
+    [entry] = captured
+    assert entry["raw_message"] == raw
+    assert entry["human_message"] == "Job 'Watchlist incremental sync (alice)' finished"
 
 
 def test_snapshot_since_returns_only_newer() -> None:
