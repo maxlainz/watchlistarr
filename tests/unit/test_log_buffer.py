@@ -113,13 +113,34 @@ def test_buffer_handler_humanizes_apscheduler_messages(monkeypatch) -> None:
     handler = BufferHandler()
     handler.setFormatter(logging.Formatter("%(message)s"))
     raw = (
-        'Job "Watchlist incremental sync (alice) (trigger: interval[1:00:00], '
+        'Job "Watchlist incremental sync · alice (trigger: interval[1:00:00], '
         'next run at: 2026-05-22 17:05:23 UTC)" executed successfully'
     )
     handler.emit(_record("apscheduler.executors.default", logging.INFO, raw))
     [entry] = captured
     assert entry["raw_message"] == raw
-    assert entry["human_message"] == "Job 'Watchlist incremental sync (alice)' finished"
+    assert entry["human_message"] == "Job 'Watchlist incremental sync · alice' finished"
+
+
+def test_buffer_handler_suppresses_running_job(monkeypatch) -> None:
+    """Mensajes 'Running job ...' son descartados (no llegan al buffer)."""
+    captured: list[dict] = []
+
+    def fake_append_structured(self, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "watchlistarr.services.log_buffer._buffer",
+        type("Fake", (), {"append_structured": fake_append_structured})(),
+    )
+    handler = BufferHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    raw = (
+        'Running job "RSS poll · alice (trigger: interval[0:15:00], '
+        'next run at: 2026-05-22 17:16:48 UTC)" (scheduled at ...)'
+    )
+    handler.emit(_record("apscheduler.executors.default", logging.INFO, raw))
+    assert captured == []
 
 
 def test_snapshot_since_returns_only_newer() -> None:

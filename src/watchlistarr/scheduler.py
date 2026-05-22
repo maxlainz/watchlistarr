@@ -103,7 +103,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
-                name=f"RSS poll ({username})",
+                name=f"RSS poll · {username}",
             )
             self._add(
                 f"discovery-{uid}",
@@ -112,7 +112,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
-                name=f"List discovery ({username})",
+                name=f"List discovery · {username}",
             )
             self._add(
                 f"films-backstop-{uid}",
@@ -121,7 +121,7 @@ class JobScheduler:
                 self._factory,
                 env,
                 uid,
-                name=f"Films backstop ({username})",
+                name=f"Films backstop · {username}",
             )
             if watchlist_enabled.get(uid, False):
                 self._add(
@@ -131,7 +131,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     uid,
-                    name=f"Watchlist incremental sync ({username})",
+                    name=f"Watchlist incremental sync · {username}",
                 )
                 self._add(
                     f"watchlist-full-{uid}",
@@ -140,7 +140,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     uid,
-                    name=f"Watchlist full sync ({username})",
+                    name=f"Watchlist full sync · {username}",
                 )
             for lst in lists_by_user.get(uid, []):
                 self._add(
@@ -150,7 +150,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     lst.id,
-                    name=f"List incremental sync ({username}/{lst.slug})",
+                    name=f"List incremental sync · {username}/{lst.slug}",
                 )
                 self._add(
                     f"list-full-{lst.id}",
@@ -159,7 +159,7 @@ class JobScheduler:
                     self._factory,
                     env,
                     lst.id,
-                    name=f"List full sync ({username}/{lst.slug})",
+                    name=f"List full sync · {username}/{lst.slug}",
                 )
 
         logger.info("scheduler.synced", jobs=len(self._scheduler.get_jobs()))

@@ -24,49 +24,49 @@ MESSAGES: dict[str, str] = {
     "watchlistarr.startup": "watchlistarr {version} starting up",
     "watchlistarr.ready": "Ready — database connected",
     "watchlistarr.shutdown": "Shutdown complete",
-    "healthz.db_unreachable": "Healthcheck failed: database unreachable ({error})",
+    "healthz.db_unreachable": "Healthcheck failed: database unreachable",
     "request.unhandled_exception": "Unhandled exception on {method} {path}",
     # scheduler
-    "scheduler.synced": "Scheduler synced ({jobs} active jobs)",
+    "scheduler.synced": "Scheduler synced — {jobs} active jobs",
     "scheduler.sync_failed": "Scheduler sync failed",
     # onboarding
-    "initial_run.background.start": "Initial run started for user {user_id}",
-    "initial_run.background.done": "Initial run finished for user {user_id}",
+    "initial_run.background.start": "Initial run started for {user_label}",
+    "initial_run.background.done": "Initial run finished for {user_label}",
     "initial_run.step_failed": "Initial run step '{source}' failed",
-    "toggle.immediate_sync_failed": "Immediate sync after toggle failed for list {list_id}",
+    "toggle.immediate_sync_failed": "Immediate sync after toggle failed",
     # letterboxd client
-    "letterboxd.forbidden": "Letterboxd rejected request (403): {url}",
-    "letterboxd.retry_5xx": "Retrying Letterboxd request (status {status}, attempt {attempt}): {url}",
+    "letterboxd.forbidden": "Letterboxd rejected request — 403 Forbidden",
+    "letterboxd.retry_5xx": "Retrying Letterboxd request — status {status}, attempt {attempt}",
     # discovery
-    "discovery.new_list": "Discovered new list '{slug_title}' for user {user_id}",
-    "discovery.disabled_missing": "Disabled missing list '{slug_title}' for user {user_id}",
+    "discovery.new_list": "Discovered new list '{slug_title}' for {user_label}",
+    "discovery.disabled_missing": "Disabled missing list '{slug_title}' for {user_label}",
     # watchlist scraper
-    "watchlist.full_sync.start": "Watchlist full sync starting (user {user_id}, list {list_id})",
-    "watchlist.full_sync.page": "Watchlist page {page}/{total_pages} fetched ({page_items} items, user {username})",
-    "watchlist.full_sync.resolving": "Resolving {total_slugs} films from watchlist (user {user_id}, list {list_id})",
-    "watchlist.full_sync": "Watchlist full sync done: {resolved}/{slugs} resolved (user {user_id}, list {list_id})",
-    "watchlist.incremental_sync": "Watchlist incremental sync done: {slugs} items (user {user_id}, list {list_id})",
+    "watchlist.full_sync.start": "Watchlist full sync starting for {user_label}",
+    "watchlist.full_sync.page": "Watchlist page {page}/{total_pages} fetched — {page_items} items",
+    "watchlist.full_sync.resolving": "Resolving {total_slugs} films from watchlist for {user_label}",
+    "watchlist.full_sync": "Watchlist full sync done — {resolved}/{slugs} resolved",
+    "watchlist.incremental_sync": "Watchlist incremental sync done — {slugs} items",
     # list scraper
-    "list.full_sync": "List '{slug_title}' full sync done: {resolved}/{slugs} resolved (list {list_id})",
-    "list.incremental_sync": "List '{slug_title}' incremental sync done: {slugs} items (list {list_id})",
+    "list.full_sync": "List '{slug_title}' full sync done — {resolved}/{slugs} resolved",
+    "list.incremental_sync": "List '{slug_title}' incremental sync done — {slugs} items",
     # anti-flap
-    "anti_flap.removed_watched": "Anti-flap: removed watched film tmdb={tmdb_id} from list {list_id}",
-    "anti_flap.rename_detected": "Anti-flap: rename detected on list {list_id} (tmdb {old_tmdb_id} → {new_tmdb_id})",
-    "anti_flap.removed_threshold": "Anti-flap: removed tmdb={tmdb_id} from list {list_id} after {count} missing checks",
+    "anti_flap.removed_watched": "Anti-flap: removed watched film",
+    "anti_flap.rename_detected": "Anti-flap: rename detected — tmdb {old_tmdb_id} → {new_tmdb_id}",
+    "anti_flap.removed_threshold": "Anti-flap: removed film after {count} missing checks",
     # custom lists
-    "custom_list.init": "Custom list {custom_list_id} initialised with {chosen} films",
-    "custom_list.rotated": "Custom list {custom_list_id} rotated ({rotated} films swapped)",
-    "custom_list.created": "Custom list '{slug_title}' created (id {custom_list_id})",
-    "custom_list.updated": "Custom list '{slug_title}' updated (id {custom_list_id})",
+    "custom_list.init": "Custom list initialised — {chosen} films",
+    "custom_list.rotated": "Custom list rotated — {rotated} films swapped",
+    "custom_list.created": "Custom list '{slug_title}' created",
+    "custom_list.updated": "Custom list '{slug_title}' updated",
     # rss / backfills
-    "rss.poll": "RSS poll for user {user_id}: {new} new of {total}",
-    "rating_backfill.done": "Rating backfill done ({enriched}/{attempted} enriched)",
-    "imdb_backfill.done": "IMDB backfill done ({enriched}/{attempted} enriched)",
-    "films_backstop.done": "Films backstop done for user {user_id}: {inserted}/{items} inserted",
+    "rss.poll": "RSS poll for {user_label} — {new} new of {total}",
+    "rating_backfill.done": "Rating backfill done — {enriched}/{attempted} enriched",
+    "imdb_backfill.done": "IMDB backfill done — {enriched}/{attempted} enriched",
+    "films_backstop.done": "Films backstop done for {user_label} — {inserted}/{items} inserted",
     # films / users
     "film.resolve": "Resolving film {slug_title}",
-    "film.skipped": "Skipped film {slug_title} (tmdb_type={tmdb_type}, tmdb_id={tmdb_id})",
-    "user.added": "User '{username}' added (id {user_id})",
+    "film.skipped": "Skipped film {slug_title}",
+    "user.added": "User '{username}' added",
 }
 
 
@@ -121,6 +121,14 @@ def humanize(event: str | None, fields: dict[str, Any], fallback: str) -> str:
     slug = enriched.get("slug")
     if isinstance(slug, str) and slug:
         enriched.setdefault("slug_title", _clean_slug(slug))
+    # Si hay username, úsalo como etiqueta de usuario en el mensaje principal;
+    # si no, caer a "user {id}". Los templates usan {user_label} en lugar de
+    # {user_id} para evitar el formato técnico "user 1" cuando hay username.
+    username = enriched.get("username")
+    if isinstance(username, str) and username:
+        enriched.setdefault("user_label", username)
+    elif "user_id" in enriched:
+        enriched.setdefault("user_label", f"user {enriched['user_id']}")
     try:
         return template.format_map(_SafeDict(enriched))
     except Exception:
@@ -190,3 +198,16 @@ def humanize_external(message: str) -> str:
         except Exception:
             return message
     return message
+
+
+# Mensajes que NO queremos en el buffer/UI. Siguen apareciendo en stdout
+# (los emite APScheduler tal cual) pero no contaminan la página Activity.
+# "Running job" es redundante con el "executed successfully" que llega
+# segundos después con la misma info.
+SUPPRESSED_EXTERNAL_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r'^Running job "'),
+]
+
+
+def should_suppress_external(message: str) -> bool:
+    return any(p.search(message) is not None for p in SUPPRESSED_EXTERNAL_PATTERNS)

@@ -8,21 +8,36 @@ from watchlistarr.services.log_messages import (
     _clean_slug,
     humanize,
     humanize_external,
+    should_suppress_external,
 )
 
 
 def test_known_event_formats_with_complete_fields() -> None:
     assert (
         humanize("watchlist.full_sync.start", {"user_id": 7, "list_id": 42}, "raw")
-        == "Watchlist full sync starting (user 7, list 42)"
+        == "Watchlist full sync starting for user 7"
     )
 
 
+def test_username_takes_precedence_over_user_id_in_user_label() -> None:
+    msg = humanize(
+        "rss.poll",
+        {"user_id": 7, "username": "alice", "total": 49, "new": 0},
+        "raw",
+    )
+    assert msg == "RSS poll for alice — 0 new of 49"
+
+
+def test_user_label_falls_back_to_user_id_when_no_username() -> None:
+    msg = humanize("rss.poll", {"user_id": 7, "total": 49, "new": 0}, "raw")
+    assert msg == "RSS poll for user 7 — 0 new of 49"
+
+
 def test_missing_field_keeps_placeholder_no_keyerror() -> None:
-    # _SafeDict deja {list_id} literal en vez de lanzar KeyError
+    # _SafeDict deja {total_pages} literal en vez de lanzar KeyError
     assert (
-        humanize("watchlist.full_sync.start", {"user_id": 7}, "raw")
-        == "Watchlist full sync starting (user 7, list {list_id})"
+        humanize("watchlist.full_sync.page", {"page": 1, "page_items": 30}, "raw")
+        == "Watchlist page 1/{total_pages} fetched — 30 items"
     )
 
 
@@ -85,7 +100,7 @@ def test_humanize_uses_slug_title_for_list_events() -> None:
         {"slug": "favorites", "list_id": 5, "resolved": 10, "slugs": 12},
         "raw",
     )
-    assert msg == "List 'Favorites' full sync done: 10/12 resolved (list 5)"
+    assert msg == "List 'Favorites' full sync done — 10/12 resolved"
 
 
 def test_humanize_falls_back_when_slug_missing_in_field() -> None:
@@ -133,3 +148,23 @@ def test_humanize_external_apscheduler(raw: str, expected: str) -> None:
 def test_humanize_external_returns_original_when_no_match() -> None:
     raw = "Some random log line that nothing matches."
     assert humanize_external(raw) == raw
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            'Running job "RSS poll · alice (trigger: interval[0:15:00], '
+            'next run at: ...)" (scheduled at ...)',
+            True,
+        ),
+        (
+            'Job "RSS poll · alice (trigger: interval[0:15:00], '
+            'next run at: ...)" executed successfully',
+            False,
+        ),
+        ("Scheduler started", False),
+    ],
+)
+def test_should_suppress_external(message: str, expected: bool) -> None:
+    assert should_suppress_external(message) is expected

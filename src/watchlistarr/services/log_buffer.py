@@ -130,10 +130,15 @@ class BufferHandler(logging.Handler):
             msg = self.format(record)
         except Exception:
             msg = record.getMessage()
-        src = name.rsplit(".", 1)[-1] or "root"
         # Import local para evitar ciclo (log_messages no depende de log_buffer).
-        from watchlistarr.services.log_messages import humanize_external
+        from watchlistarr.services.log_messages import (
+            humanize_external,
+            should_suppress_external,
+        )
 
+        if should_suppress_external(msg):
+            return
+        src = name.rsplit(".", 1)[-1] or "root"
         _buffer.append_structured(
             level=record.levelname,
             event=None,

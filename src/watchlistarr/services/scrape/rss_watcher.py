@@ -27,7 +27,13 @@ async def poll_rss_for_user(
     response = await client.get(f"/{user.letterboxd_username}/rss/")
     events = parse_rss_feed(response.text)
     if not events:
-        logger.info("rss.poll", user_id=user.id, total=0, new=0)
+        logger.info(
+            "rss.poll",
+            user_id=user.id,
+            username=user.letterboxd_username,
+            total=0,
+            new=0,
+        )
         return 0
 
     guids = [event.guid for event in events]
@@ -91,5 +97,11 @@ async def poll_rss_for_user(
 
         await session.commit()
 
-    logger.info("rss.poll", user_id=user.id, total=len(events), new=new_events)
+    logger.info(
+        "rss.poll",
+        user_id=user.id,
+        username=user.letterboxd_username,
+        total=len(events),
+        new=new_events,
+    )
     return new_events
