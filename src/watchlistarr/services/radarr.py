@@ -43,6 +43,8 @@ async def serialize_custom_list(session: AsyncSession, custom_list: CustomList) 
         )
     else:
         stmt = stmt.order_by(CustomListItem.position, CustomListItem.tmdb_id)
+    if custom_list.max_items is not None:
+        stmt = stmt.limit(custom_list.max_items)
     rows = (await session.execute(stmt)).all()
     return [
         RadarrItem(id=tmdb_id, tmdb_id=tmdb_id, title=title, imdb_id=imdb_id)
