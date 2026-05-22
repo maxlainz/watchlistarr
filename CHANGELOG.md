@@ -6,6 +6,17 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-05-22
+
+### Fixed
+- Custom lists: al editar una lista y reducir `max_items`, el recálculo no
+  truncaba los items sobrantes — la lista seguía sirviendo el tamaño anterior
+  a Radarr. `recalculate()` ahora elimina el excedente eligiendo qué
+  conservar según el `sort_order` configurado (top-N por rating en
+  `RATING_DESC`, top-N por posición en `LETTERBOXD`/`REVERSE`, aleatorio en
+  `RANDOM`). Como defensa en profundidad, `serialize_custom_list` aplica
+  `LIMIT max_items` al servir.
+
 ## [1.2.1] - 2026-05-22
 
 ### Fixed
