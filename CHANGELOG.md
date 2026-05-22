@@ -6,6 +6,39 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-05-22
+
+### Fixed
+- Custom lists: `rotate()` y `recalculate()` dejaban `position` duplicada
+  entre items conservados y nuevos cuando el batch era menor al tamaño de
+  la lista. Como `position` no es UNIQUE, no fallaba en DB pero el orden
+  enviado a Radarr (ordenado por `position, tmdb_id`) quedaba mezclado
+  tras varias rotaciones. Nuevo helper `_reindex_positions()` reasigna
+  positions [0..N-1] al final de ambas funciones, ordenando por
+  `served_since DESC` (items recientes primero).
+- Custom lists: defensa contra `year_last_n=0` inyectado directamente en
+  DB (clamp a `>=1` en `_apply_filters`). El endpoint ya lo normalizaba
+  a None, pero el servicio quedaba expuesto a producir pool vacío
+  silencioso.
+- Scraping: `sync_list_incremental` y `sync_watchlist_incremental`
+  reasignaban `position` de items existentes basándose en el índice
+  dentro del slice escrapeado (página 1 + última página), corrompiendo el
+  orden enviado a Radarr hasta el siguiente full sync. `_upsert_items`
+  ahora acepta `reassign_positions` (default `True`); los incrementales
+  pasan `False`.
+- DB: migración 0006 añade `rating_desc` al enum nativo
+  `sort_order_enum`. La 0003 lo había omitido y la feature
+  `SortOrder.RATING_DESC` (introducida en 1.2.0) fallaba en Postgres con
+  `invalid input value for enum`. SQLite no se afectaba (enums como
+  VARCHAR).
+- Scheduler: `JobScheduler.shutdown` delegado a `asyncio.to_thread` para
+  no bloquear el event loop durante el lifespan de FastAPI.
+
+### Docs
+- `_parse_optional_int` vs `_parse_optional_float`: documentada la
+  asimetría intencional (`0` se trata como `None` en ints pero `0.0` se
+  preserva en floats para soportar `minRating=0`).
+
 ## [1.2.2] - 2026-05-22
 
 ### Fixed
