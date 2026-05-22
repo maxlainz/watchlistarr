@@ -6,6 +6,37 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-22
+
+### Added
+- Página Activity: logs humanizados preservando la información técnica.
+  Cada evento de structlog se captura estructurado en el buffer (event,
+  fields, exc_info) y se traduce vía un catálogo en
+  `src/watchlistarr/services/log_messages.py` a una frase humana. El
+  endpoint `/api/v1/activity` expone aditivamente `event`, `fields`,
+  `humanMessage` y `excInfo` — el campo `message` raw se conserva
+  intacto para back-compat.
+- UI Activity.jsx renderiza la frase humana en la línea principal con
+  chips inline para los fields más relevantes y un bloque expandible al
+  click con event completo, todos los fields y traceback. Mismo
+  tratamiento para INFO/WARN/ERROR — el traceback en ERROR queda
+  contenido en el expandible sin romper la altura colapsada. El cliente
+  detecta restart del backend (`latestSeq < cursor`) y resincroniza el
+  state sin requerir reload.
+- Catálogo cubre ~35 events estructurados con conversión automática de
+  slugs Letterboxd-style a títulos legibles
+  (`the-thing-with-feathers-2025` → `The Thing With Feathers (2025)`) y
+  derivación de `user_label` desde `username` con fallback a `user N`.
+
+### Changed
+- Jobs de APScheduler reciben `name=...` humano en `add_job()`, de modo
+  que APScheduler use ese nombre en sus propios mensajes. Las regex de
+  `EXTERNAL_RULES` reescriben el wrapper técnico
+  (`Job "X (trigger: …, next run at: …)" executed successfully` →
+  `Job finished — X`) y el patrón `Running job …` queda suprimido por
+  ser redundante con el `executed successfully` posterior. Separador
+  em-dash consistente en todos los mensajes humanos.
+
 ## [1.2.3] - 2026-05-22
 
 ### Fixed
