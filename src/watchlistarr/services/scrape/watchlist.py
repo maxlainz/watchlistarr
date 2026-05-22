@@ -28,13 +28,24 @@ async def _upsert_items(
     list_id: int,
     ordered_slugs: list[str],
     films_by_slug: dict[str, ResolvedFilm],
+    *,
+    reassign_positions: bool = True,
 ) -> set[int]:
+    """Upsert de ``list_items`` por slug.
+
+    ``reassign_positions`` controla si la position de items existentes se
+    reescribe con su índice en ``ordered_slugs``. En scrapes completos sí; en
+    incrementales no — el slice escrapeado (página 1 + última página) no
+    refleja la position real en la lista y reescribirla corrompe el orden
+    enviado a Radarr hasta el siguiente full sync.
+    """
     existing_items = list(
         (await session.execute(select(ListItem).where(ListItem.list_id == list_id))).scalars().all()
     )
     existing_by_tmdb = {it.tmdb_id: it for it in existing_items}
     now = utcnow()
     seen: set[int] = set()
+    next_new_position = max((it.position for it in existing_items), default=-1) + 1
     for position, slug in enumerate(ordered_slugs):
         film = films_by_slug.get(slug)
         if film is None:
@@ -44,17 +55,23 @@ async def _upsert_items(
         seen.add(film.tmdb_id)
         item = existing_by_tmdb.get(film.tmdb_id)
         if item is None:
+            if reassign_positions:
+                insert_position = position
+            else:
+                insert_position = next_new_position
+                next_new_position += 1
             session.add(
                 ListItem(
                     list_id=list_id,
                     tmdb_id=film.tmdb_id,
-                    position=position,
+                    position=insert_position,
                     added_at=now,
                     last_seen_at=now,
                 )
             )
         else:
-            item.position = position
+            if reassign_positions:
+                item.position = position
             item.last_seen_at = now
             item.pending_removal_count = 0
     return seen
@@ -162,7 +179,7 @@ async def sync_watchlist_incremental(
         watchlist = await session.get(ListModel, list_id)
         if watchlist is None:
             return
-        await _upsert_items(session, list_id, page_slugs, resolved)
+        await _upsert_items(session, list_id, page_slugs, resolved, reassign_positions=False)
         watchlist.last_synced_at = utcnow()
         watchlist.last_sync_status = SyncStatus.SUCCESS
         await session.commit()

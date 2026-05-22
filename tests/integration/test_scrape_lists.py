@@ -98,3 +98,44 @@ async def test_sync_list_incremental_uses_added_earliest_when_paginated(
     )
     # Combina ambos sets.
     assert {it.tmdb_id for it in items} == {1, 447210, 496243, 915935}
+
+
+@respx.mock
+async def test_sync_list_incremental_preserves_existing_positions(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
+) -> None:
+    """Regresión: incremental no debe pisar la position de items ya existentes.
+    El slice escrapeado (página 1 + última) no refleja la position real."""
+    from watchlistarr.models.films import Film
+
+    lst = await _make_user_list(session)
+    # Simular un full sync previo: 3 items con positions reales [50, 51, 52].
+    for tmdb_id, slug, pos in [
+        (447210, "3-faces", 50),
+        (496243, "parasite-2019", 51),
+        (915935, "anatomy-of-a-fall", 52),
+    ]:
+        session.add(Film(tmdb_id=tmdb_id, letterboxd_slug=slug, title=slug, year=2020))
+        session.add(ListItem(list_id=lst.id, tmdb_id=tmdb_id, position=pos))
+    await session.commit()
+
+    # Incremental que vuelve a ver los mismos slugs en página 1 (sin paginación).
+    respx.get("https://letterboxd.com/alice/list/favs/").mock(
+        return_value=httpx.Response(200, text=fixture_text("watchlist_p1.html"))
+    )
+    _stub_film_page("3-faces", 447210)
+    _stub_film_page("parasite-2019", 496243)
+    _stub_film_page("anatomy-of-a-fall", 915935)
+
+    await sync_list_incremental(factory, letterboxd_client, lst.id)
+
+    async with factory() as verify:
+        items = (
+            (await verify.execute(select(ListItem).where(ListItem.list_id == lst.id)))
+            .scalars()
+            .all()
+        )
+    positions_by_tmdb = {it.tmdb_id: it.position for it in items}
+    assert positions_by_tmdb == {447210: 50, 496243: 51, 915935: 52}

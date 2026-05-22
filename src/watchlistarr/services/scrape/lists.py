@@ -131,7 +131,7 @@ async def sync_list_incremental(
         list_row: ListModel | None = await session.get(ListModel, list_id)
         if list_row is None:
             return
-        await _upsert_items(session, list_id, combined_slugs, resolved)
+        await _upsert_items(session, list_id, combined_slugs, resolved, reassign_positions=False)
         list_row.last_synced_at = utcnow()
         list_row.last_sync_status = SyncStatus.SUCCESS
         await session.commit()
