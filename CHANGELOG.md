@@ -6,6 +6,17 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-22
+
+### Fixed
+- `rotation_tick` lanzaba `TypeError: can't compare offset-naive and
+  offset-aware datetimes` cada hora. SQLite descarta la tzinfo en
+  columnas `DateTime` sin `timezone=True`, así que `last_rotated_at`
+  vuelve naive al releer desde la DB y la suma con `utcnow()` (aware)
+  rompía. `rotate()` ahora normaliza el valor a UTC-aware antes de la
+  aritmética, siguiendo el mismo patrón que `_iso()` en la API. Test de
+  regresión que fuerza el round-trip por DB.
+
 ## [1.2.0] - 2026-05-21
 
 ### Added
