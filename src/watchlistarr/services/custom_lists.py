@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.models.base import utcnow
@@ -277,18 +277,31 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
 
     if custom_list.max_items is None:
         return
-    remaining_count = len(
-        list(
-            (
-                await session.execute(
-                    select(CustomListItem.tmdb_id).where(
-                        CustomListItem.custom_list_id == custom_list.id
-                    )
+    remaining_ids = [
+        row[0]
+        for row in (
+            await session.execute(
+                select(CustomListItem.tmdb_id).where(
+                    CustomListItem.custom_list_id == custom_list.id
                 )
-            ).all()
+            )
+        ).all()
+    ]
+    remaining_count = len(remaining_ids)
+    if remaining_count > custom_list.max_items:
+        keep = set(
+            await _choose_from_pool(session, custom_list, remaining_ids, custom_list.max_items)
         )
-    )
-    if remaining_count >= custom_list.max_items:
+        drop_ids = [t for t in remaining_ids if t not in keep]
+        await session.execute(
+            delete(CustomListItem).where(
+                CustomListItem.custom_list_id == custom_list.id,
+                CustomListItem.tmdb_id.in_(drop_ids),
+            )
+        )
+        await session.flush()
+        return
+    if remaining_count == custom_list.max_items:
         return
     pool = await eligible_pool(session, custom_list)
     need = custom_list.max_items - remaining_count

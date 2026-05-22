@@ -132,6 +132,87 @@ async def test_recalculate_drops_invalid_and_refills(session: AsyncSession) -> N
     assert len(tmdb_ids) == 3
 
 
+async def test_recalculate_truncates_when_max_items_lowered(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
+    cl = await _make_custom_list(session, parent, slug="shrink", max_items=5)
+    await init_items(session, cl)
+    cl.max_items = 2
+    await session.flush()
+
+    await recalculate(session, cl)
+    items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(list(items)) == 2
+
+
+async def test_recalculate_truncate_respects_rating_sort(session: AsyncSession) -> None:
+    user = User(letterboxd_username="alice")
+    session.add(user)
+    await session.flush()
+    parent = ListModel(
+        user_id=user.id,
+        source_type=SourceType.WATCHLIST,
+        slug="watchlist",
+        name="WL",
+        enabled=True,
+    )
+    session.add(parent)
+    await session.flush()
+    rating_by_tmdb = {1: 4.5, 2: 4.0, 3: 3.5, 4: 3.0, 5: 2.5}
+    for pos, (tmdb_id, rating) in enumerate(rating_by_tmdb.items()):
+        session.add(
+            Film(
+                tmdb_id=tmdb_id,
+                letterboxd_slug=f"f{tmdb_id}",
+                title=f"Film {tmdb_id}",
+                year=2020,
+                letterboxd_avg_rating=rating,
+            )
+        )
+        session.add(ListItem(list_id=parent.id, tmdb_id=tmdb_id, position=pos))
+    await session.flush()
+
+    cl = await _make_custom_list(
+        session, parent, slug="shrink-rating", max_items=5, sort_order=SortOrder.RATING_DESC
+    )
+    await init_items(session, cl)
+    cl.max_items = 2
+    await session.flush()
+
+    await recalculate(session, cl)
+    items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(it.tmdb_id for it in items) == [1, 2]
+
+
+async def test_serialize_custom_list_respects_max_items_limit(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session, parent, slug="serve-cap", max_items=3, sort_order=SortOrder.LETTERBOXD
+    )
+    for pos, tmdb_id in enumerate([10, 20, 30, 40, 50]):
+        session.add(CustomListItem(custom_list_id=cl.id, tmdb_id=tmdb_id, position=pos))
+    await session.flush()
+
+    items = await serialize_custom_list(session, cl)
+    assert len(items) == 3
+    assert [it.tmdb_id for it in items] == [10, 20, 30]
+
+
 async def test_rotate_respects_interval(session: AsyncSession) -> None:
     _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
     cl = await _make_custom_list(
