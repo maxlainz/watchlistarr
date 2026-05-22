@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from watchlistarr.models.base import utcnow
 from watchlistarr.models.custom_list_items import CustomListItem
@@ -20,6 +20,7 @@ from watchlistarr.services.custom_lists import (
     recalculate,
     resolve_full_pool,
     rotate,
+    rotation_tick,
 )
 from watchlistarr.services.radarr import serialize_custom_list
 
@@ -347,3 +348,42 @@ async def test_rotate_swaps_oldest(session: AsyncSession) -> None:
     assert 1 not in tmdb_ids
     assert 2 in tmdb_ids
     assert len(tmdb_ids) == 2
+
+
+async def test_rotation_tick_handles_naive_datetime_from_db(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # SQLite descarta la tzinfo en columnas DateTime sin timezone=True, así
+    # que `last_rotated_at` vuelve naive al releer; la aritmética con
+    # `utcnow()` (aware) debe seguir funcionando.
+    async with factory() as session:
+        _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
+        cl = await _make_custom_list(
+            session,
+            parent,
+            slug="naive-rot",
+            max_items=2,
+            rotation_enabled=True,
+            rotation_interval=timedelta(seconds=1),
+            rotation_batch_size=1,
+            last_rotated_at=utcnow() - timedelta(hours=1),
+        )
+        older = utcnow() - timedelta(days=2)
+        newer = utcnow() - timedelta(hours=1)
+        session.add_all(
+            [
+                CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0, served_since=older),
+                CustomListItem(custom_list_id=cl.id, tmdb_id=2, position=1, served_since=newer),
+            ]
+        )
+        await session.commit()
+        cl_id = cl.id
+
+    async with factory() as session:
+        reloaded = await session.get(CustomList, cl_id)
+        assert reloaded is not None
+        assert reloaded.last_rotated_at is not None
+        assert reloaded.last_rotated_at.tzinfo is None
+
+        rotated = await rotation_tick(session)
+        assert rotated == 1
