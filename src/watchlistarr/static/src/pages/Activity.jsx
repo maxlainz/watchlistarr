@@ -31,6 +31,14 @@ const ActivityPage = () => {
       try {
         const data = await window.API.activity(sinceRef.current);
         if (cancelled) return;
+        // Server restart detection: if latestSeq dropped below our cursor,
+        // the buffer was reset — discard the stale client state.
+        if (data.latestSeq < sinceRef.current) {
+          sinceRef.current = 0;
+          setLines(data.lines);
+          if (data.lines.length > 0) sinceRef.current = data.latestSeq;
+          return;
+        }
         if (data.lines.length > 0) {
           sinceRef.current = data.latestSeq;
           setLines(prev => [...prev.slice(-1700), ...data.lines].slice(-2000));
