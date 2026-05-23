@@ -30,9 +30,11 @@ from watchlistarr.models.scrape_runs import ScrapeRun
 from watchlistarr.models.users import User
 from watchlistarr.services.custom_lists import (
     _combine_includes,
+    _items_by_custom_list,
     _items_by_list,
     _watched_by_users,
     describe_sources,
+    detect_cycle,
     init_items,
     recalculate,
 )
@@ -188,7 +190,7 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
         .scalars()
         .all()
     )
-    list_ids = [s.list_id for s in sources_rows]
+    list_ids = [s.list_id for s in sources_rows if s.list_id is not None]
     lists_by_id: dict[int, tuple[ListModel, User]] = {}
     if list_ids:
         rows = (
@@ -201,20 +203,47 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
         for lst, usr in rows:
             lists_by_id[lst.id] = (lst, usr)
 
+    cl_source_ids = [
+        s.source_custom_list_id for s in sources_rows if s.source_custom_list_id is not None
+    ]
+    cls_by_id: dict[int, CustomList] = {}
+    if cl_source_ids:
+        cl_rows = (
+            (await session.execute(select(CustomList).where(CustomList.id.in_(cl_source_ids))))
+            .scalars()
+            .all()
+        )
+        cls_by_id = {c.id: c for c in cl_rows}
+
     sources_payload: list[dict[str, Any]] = []
     for src in sources_rows:
-        entry = lists_by_id.get(src.list_id)
-        if entry is None:
-            continue
-        lst, usr = entry
-        sources_payload.append(
-            {
-                "listId": lst.id,
-                "name": "Watchlist" if lst.source_type is SourceType.WATCHLIST else lst.name,
-                "username": usr.letterboxd_username,
-                "role": src.role.value,
-            }
-        )
+        if src.list_id is not None:
+            entry = lists_by_id.get(src.list_id)
+            if entry is None:
+                continue
+            lst, usr = entry
+            sources_payload.append(
+                {
+                    "kind": "list",
+                    "listId": lst.id,
+                    "name": "Watchlist" if lst.source_type is SourceType.WATCHLIST else lst.name,
+                    "username": usr.letterboxd_username,
+                    "role": src.role.value,
+                }
+            )
+        elif src.source_custom_list_id is not None:
+            ref = cls_by_id.get(src.source_custom_list_id)
+            if ref is None:
+                continue
+            sources_payload.append(
+                {
+                    "kind": "custom_list",
+                    "customListId": ref.id,
+                    "customListSlug": ref.slug,
+                    "name": ref.name,
+                    "role": src.role.value,
+                }
+            )
 
     excluded_user_ids = [
         row[0]
@@ -648,21 +677,55 @@ def _parse_optional_float(value: Any) -> float | None:
 async def _save_sources(
     session: AsyncSession,
     custom_list: CustomList,
-    include_ids: list[int],
-    subtract_ids: list[int],
+    inc_lists: list[int],
+    inc_cls: list[int],
+    sub_lists: list[int],
+    sub_cls: list[int],
 ) -> None:
     await session.execute(
         delete(CustomListSource).where(CustomListSource.custom_list_id == custom_list.id)
     )
-    for lid in include_ids:
+    seen_list: set[tuple[int, SourceRole]] = set()
+    seen_cl: set[tuple[int, SourceRole]] = set()
+    for lid in inc_lists:
+        key = (lid, SourceRole.INCLUDE)
+        if key in seen_list:
+            continue
+        seen_list.add(key)
         session.add(
             CustomListSource(custom_list_id=custom_list.id, list_id=lid, role=SourceRole.INCLUDE)
         )
-    for lid in subtract_ids:
-        if lid in include_ids:
+    for cid in inc_cls:
+        key = (cid, SourceRole.INCLUDE)
+        if key in seen_cl:
             continue
+        seen_cl.add(key)
+        session.add(
+            CustomListSource(
+                custom_list_id=custom_list.id,
+                source_custom_list_id=cid,
+                role=SourceRole.INCLUDE,
+            )
+        )
+    for lid in sub_lists:
+        key = (lid, SourceRole.SUBTRACT)
+        if (lid, SourceRole.INCLUDE) in seen_list or key in seen_list:
+            continue
+        seen_list.add(key)
         session.add(
             CustomListSource(custom_list_id=custom_list.id, list_id=lid, role=SourceRole.SUBTRACT)
+        )
+    for cid in sub_cls:
+        key = (cid, SourceRole.SUBTRACT)
+        if (cid, SourceRole.INCLUDE) in seen_cl or key in seen_cl:
+            continue
+        seen_cl.add(key)
+        session.add(
+            CustomListSource(
+                custom_list_id=custom_list.id,
+                source_custom_list_id=cid,
+                role=SourceRole.SUBTRACT,
+            )
         )
 
 
@@ -678,21 +741,57 @@ async def _save_excluded(
         session.add(CustomListExcludedWatcher(custom_list_id=custom_list.id, user_id=uid))
 
 
-def _split_sources(payload: dict[str, Any]) -> tuple[list[int], list[int]]:
+def _split_sources(
+    payload: dict[str, Any],
+) -> tuple[list[int], list[int], list[int], list[int]]:
+    """Devuelve (inc_lists, inc_cls, sub_lists, sub_cls).
+
+    Acepta entries con ``listId`` (origen Letterboxd) o ``customListId``
+    (origen otra custom list). Exactamente uno de los dos debe estar.
+    """
     sources = payload.get("sources", []) or []
-    include_ids: list[int] = []
-    subtract_ids: list[int] = []
+    inc_lists: list[int] = []
+    inc_cls: list[int] = []
+    sub_lists: list[int] = []
+    sub_cls: list[int] = []
     for src in sources:
         role = src.get("role", "include")
+        has_list = src.get("listId") is not None
+        has_cl = src.get("customListId") is not None
+        if has_list == has_cl:
+            raise HTTPException(
+                status_code=400,
+                detail="source must have exactly one of listId or customListId",
+            )
         try:
-            lid = int(src["listId"])
+            target_id = int(src["listId"] if has_list else src["customListId"])
         except (KeyError, TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="invalid source") from exc
         if role == SourceRole.SUBTRACT.value:
-            subtract_ids.append(lid)
+            (sub_lists if has_list else sub_cls).append(target_id)
         else:
-            include_ids.append(lid)
-    return include_ids, subtract_ids
+            (inc_lists if has_list else inc_cls).append(target_id)
+    return inc_lists, inc_cls, sub_lists, sub_cls
+
+
+async def _validate_no_cycle(
+    session: AsyncSession,
+    target_custom_list_id: int | None,
+    inc_cls: list[int],
+    sub_cls: list[int],
+) -> None:
+    """Rechaza con 400 si los custom-list-sources crean un ciclo."""
+    candidates = list({*inc_cls, *sub_cls})
+    if not candidates:
+        return
+    if target_custom_list_id is not None and target_custom_list_id in candidates:
+        raise HTTPException(status_code=400, detail="cycle: a custom list cannot reference itself")
+    closer = await detect_cycle(session, target_custom_list_id, candidates)
+    if closer is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"cycle: source custom list {closer} would reference this list",
+        )
 
 
 async def _resolve_excluded_user_ids(session: AsyncSession, payload: dict[str, Any]) -> list[int]:
@@ -726,9 +825,10 @@ async def create_custom_list(
     if existing is not None:
         raise HTTPException(status_code=400, detail=f"slug already exists: {slug}")
 
-    include_ids, subtract_ids = _split_sources(payload)
-    if not include_ids:
+    inc_lists, inc_cls, sub_lists, sub_cls = _split_sources(payload)
+    if not inc_lists and not inc_cls:
         raise HTTPException(status_code=400, detail="at least one include source is required")
+    await _validate_no_cycle(session, None, inc_cls, sub_cls)
     excluded_user_ids = await _resolve_excluded_user_ids(session, payload)
 
     year_last_n = _parse_optional_int(payload.get("yearLastN"))
@@ -759,7 +859,10 @@ async def create_custom_list(
     )
     session.add(cl)
     await session.flush()
-    await _save_sources(session, cl, include_ids, subtract_ids)
+    # Re-validar el ciclo ahora que cl.id existe (cubre el caso self-reference
+    # vía customListId que matchea el id recién asignado).
+    await _validate_no_cycle(session, cl.id, inc_cls, sub_cls)
+    await _save_sources(session, cl, inc_lists, inc_cls, sub_lists, sub_cls)
     await _save_excluded(session, cl, excluded_user_ids)
     await session.flush()
     await init_items(session, cl)
@@ -781,9 +884,10 @@ async def update_custom_list(
     if cl is None:
         raise HTTPException(status_code=404)
 
-    include_ids, subtract_ids = _split_sources(payload)
-    if not include_ids:
+    inc_lists, inc_cls, sub_lists, sub_cls = _split_sources(payload)
+    if not inc_lists and not inc_cls:
         raise HTTPException(status_code=400, detail="at least one include source is required")
+    await _validate_no_cycle(session, cl.id, inc_cls, sub_cls)
     excluded_user_ids = await _resolve_excluded_user_ids(session, payload)
 
     cl.name = str(payload.get("name", cl.name)).strip()
@@ -807,7 +911,7 @@ async def update_custom_list(
     cl.rotation_interval = _td_from_hours(payload.get("rotationInterval"))
     cl.snapshot_interval = _td_from_hours(payload.get("snapshotInterval"))
 
-    await _save_sources(session, cl, include_ids, subtract_ids)
+    await _save_sources(session, cl, inc_lists, inc_cls, sub_lists, sub_cls)
     await _save_excluded(session, cl, excluded_user_ids)
     await session.flush()
     await recalculate(session, cl)
@@ -836,19 +940,22 @@ async def preview_custom_list(
     session: Annotated[AsyncSession, Depends(get_session)],
     payload: Annotated[dict[str, Any], Body()],
 ) -> JSONResponse:
-    include_ids, subtract_ids = _split_sources(payload)
-    if not include_ids:
+    inc_lists, inc_cls, sub_lists, sub_cls = _split_sources(payload)
+    if not inc_lists and not inc_cls:
         return JSONResponse({"pool": 0})
     op_value = payload.get("op", "union")
     excluded_user_ids = await _resolve_excluded_user_ids(session, payload)
 
-    by_list = await _items_by_list(session, list(set(include_ids + subtract_ids)))
-    includes = _combine_includes(
-        (by_list.get(lid, set()) for lid in include_ids), CombinationOp(op_value)
-    )
+    by_list = await _items_by_list(session, list(set(inc_lists + sub_lists)))
+    by_cl = await _items_by_custom_list(session, list(set(inc_cls + sub_cls)))
+    include_sets: list[set[int]] = [by_list.get(lid, set()) for lid in inc_lists]
+    include_sets.extend(by_cl.get(cid, set()) for cid in inc_cls)
+    includes = _combine_includes(include_sets, CombinationOp(op_value))
     subtracts: set[int] = set()
-    for lid in subtract_ids:
+    for lid in sub_lists:
         subtracts |= by_list.get(lid, set())
+    for cid in sub_cls:
+        subtracts |= by_cl.get(cid, set())
     watched = await _watched_by_users(session, excluded_user_ids)
     universe = includes - subtracts - watched
     return JSONResponse({"pool": len(universe)})

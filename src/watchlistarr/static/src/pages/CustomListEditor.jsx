@@ -2,6 +2,45 @@
 
 const slugFromName = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+// Source IDs en el state son strings con prefijo: "l:<listId>" o "c:<customListId>".
+// Permite mezclar listas Letterboxd y custom lists en el mismo Set sin colisión.
+const sourceKey = (src) =>
+  src.customListId != null ? `c:${src.customListId}` : `l:${src.listId}`;
+const parseSourceKey = (key) => {
+  const [kind, idStr] = key.split(':');
+  const id = parseInt(idStr, 10);
+  return kind === 'c' ? { customListId: id } : { listId: id };
+};
+
+// BFS sobre customLists[*].sources para detectar qué custom lists alcanzan el
+// que se está editando — esos no se pueden seleccionar como source (crearían
+// ciclo). El back-end vuelve a validar al guardar.
+const computeCyclingIds = (customLists, editingId) => {
+  const cycling = new Set();
+  if (editingId == null) return cycling;
+  // dependentsOf[id] = ids que usan `id` como source.
+  const dependents = new Map();
+  for (const cl of customLists) {
+    for (const src of cl.sources || []) {
+      if (src.customListId != null) {
+        if (!dependents.has(src.customListId)) dependents.set(src.customListId, []);
+        dependents.get(src.customListId).push(cl.id);
+      }
+    }
+  }
+  const frontier = [editingId];
+  while (frontier.length) {
+    const cur = frontier.shift();
+    for (const dep of dependents.get(cur) || []) {
+      if (!cycling.has(dep)) {
+        cycling.add(dep);
+        frontier.push(dep);
+      }
+    }
+  }
+  return cycling;
+};
+
 const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, editingSlug, showToast }) => {
   const isNew = editingSlug === 'new';
   const existing = !isNew ? customLists.find(c => c.slug === editingSlug) : null;
@@ -10,10 +49,10 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
   const [slug, setSlug] = React.useState(existing?.slug || '');
   const [op, setOp] = React.useState(existing?.op || 'union');
   const [includes, setIncludes] = React.useState(
-    new Set((existing?.sources || []).filter(s => s.role === 'include').map(s => s.listId))
+    new Set((existing?.sources || []).filter(s => s.role === 'include').map(sourceKey))
   );
   const [subtracts, setSubtracts] = React.useState(
-    new Set((existing?.sources || []).filter(s => s.role === 'subtract').map(s => s.listId))
+    new Set((existing?.sources || []).filter(s => s.role === 'subtract').map(sourceKey))
   );
   const [excludedWatchers, setExcludedWatchers] = React.useState(
     new Set(existing?.excludedWatchers || [])
@@ -48,10 +87,22 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
     setFn(next);
   };
 
+  const cyclingIds = React.useMemo(
+    () => computeCyclingIds(customLists, existing?.id),
+    [customLists, existing?.id]
+  );
+  const availableCustomLists = React.useMemo(
+    () => customLists.filter(c => c.id !== existing?.id && !cyclingIds.has(c.id)),
+    [customLists, existing?.id, cyclingIds]
+  );
+
   const buildSourcesPayload = () => {
     const out = [];
-    for (const lid of includes) out.push({ listId: lid, role: 'include' });
-    for (const lid of subtracts) if (!includes.has(lid)) out.push({ listId: lid, role: 'subtract' });
+    for (const key of includes) out.push({ ...parseSourceKey(key), role: 'include' });
+    for (const key of subtracts) {
+      if (includes.has(key)) continue;
+      out.push({ ...parseSourceKey(key), role: 'subtract' });
+    }
     return out;
   };
 
@@ -162,7 +213,7 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
             <div className="form-section-sub">Pick any number of watchlists and lists from your users. They&apos;ll be combined using the operator below.</div>
           </div>
           <div>
-            <SourcePicker users={users} selected={includes} onToggle={(id) => toggleSet(setIncludes, includes, id)} />
+            <SourcePicker users={users} customLists={availableCustomLists} selected={includes} onToggle={(key) => toggleSet(setIncludes, includes, key)} />
             <div className="radio-group" style={{ marginTop: 14 }}>
               <div className={`radio-card ${op === 'union' ? 'selected' : ''}`} onClick={() => setOp('union')}>
                 <div className="title">Union <Badge tone={op==='union' ? 'amber' : 'default'} style={{marginLeft: 4}}>any of</Badge></div>
@@ -187,7 +238,7 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
               <Button variant="ghost" icon="plus" onClick={() => setShowSubtract(true)}>Add subtract sources</Button>
             ) : (
               <>
-                <SourcePicker users={users} selected={subtracts} onToggle={(id) => toggleSet(setSubtracts, subtracts, id)} />
+                <SourcePicker users={users} customLists={availableCustomLists} selected={subtracts} onToggle={(key) => toggleSet(setSubtracts, subtracts, key)} />
                 <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => { setSubtracts(new Set()); setShowSubtract(false); }}>Remove subtract section</Button>
               </>
             )}
@@ -416,29 +467,67 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
   );
 };
 
-const SourcePicker = ({ users, selected, onToggle }) => {
+const SourcePicker = ({ users, customLists = [], selected, onToggle }) => {
   const [open, setOpen] = React.useState({});
   React.useEffect(() => {
     setOpen(prev => {
       const next = { ...prev };
       users.forEach(u => {
-        if (u.lists.some(l => selected.has(l.id)) && next[u.id] === undefined) next[u.id] = true;
+        if (u.lists.some(l => selected.has(`l:${l.id}`)) && next[`u:${u.id}`] === undefined) {
+          next[`u:${u.id}`] = true;
+        }
       });
+      if (customLists.some(c => selected.has(`c:${c.id}`)) && next['cl'] === undefined) {
+        next['cl'] = true;
+      }
       return next;
     });
   }, []); // eslint-disable-line
 
+  const clSelectedCount = customLists.filter(c => selected.has(`c:${c.id}`)).length;
+  const clOpen = !!open['cl'];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {customLists.length > 0 && (
+        <div className="checkbox-group">
+          <div
+            className="checkbox-group-head"
+            style={{ cursor: 'pointer', userSelect: 'none', borderBottom: clOpen ? '1px solid var(--border-subtle)' : 'none' }}
+            onClick={() => setOpen({ ...open, cl: !clOpen })}
+          >
+            <div style={{ width: 18, display: 'grid', placeItems: 'center', color: 'var(--text-dim)', transition: 'transform 0.15s', transform: clOpen ? 'rotate(90deg)' : 'none' }}>
+              <Icon name="chevronRight" size={13} />
+            </div>
+            <div className="user-avatar" style={{ width: 20, height: 20, fontSize: 9, borderRadius: 5 }}>CL</div>
+            Custom lists
+            {clSelectedCount > 0 && (
+              <Badge tone="amber" style={{ marginLeft: 6 }}>{clSelectedCount} selected</Badge>
+            )}
+            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>
+              {clSelectedCount} / {customLists.length}
+            </span>
+          </div>
+          {clOpen && customLists.map(c => (
+            <Check key={c.id} checked={selected.has(`c:${c.id}`)} onChange={() => onToggle(`c:${c.id}`)} meta={`${c.itemsServed.toLocaleString()} served`}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="list" size={13} />
+                {c.name}
+                <Badge tone="blue">/lists/{c.slug}/</Badge>
+              </span>
+            </Check>
+          ))}
+        </div>
+      )}
       {users.map(u => {
-        const selectedCount = u.lists.filter(l => selected.has(l.id)).length;
-        const isOpen = !!open[u.id];
+        const selectedCount = u.lists.filter(l => selected.has(`l:${l.id}`)).length;
+        const isOpen = !!open[`u:${u.id}`];
         return (
           <div key={u.id} className="checkbox-group">
             <div
               className="checkbox-group-head"
               style={{ cursor: 'pointer', userSelect: 'none', borderBottom: isOpen ? '1px solid var(--border-subtle)' : 'none' }}
-              onClick={() => setOpen({ ...open, [u.id]: !isOpen })}
+              onClick={() => setOpen({ ...open, [`u:${u.id}`]: !isOpen })}
             >
               <div style={{ width: 18, display: 'grid', placeItems: 'center', color: 'var(--text-dim)', transition: 'transform 0.15s', transform: isOpen ? 'rotate(90deg)' : 'none' }}>
                 <Icon name="chevronRight" size={13} />
@@ -453,7 +542,7 @@ const SourcePicker = ({ users, selected, onToggle }) => {
               </span>
             </div>
             {isOpen && [...u.lists].sort((a,b) => (a.sourceType === 'watchlist' ? -1 : b.sourceType === 'watchlist' ? 1 : 0)).map(l => (
-              <Check key={l.id} checked={selected.has(l.id)} onChange={() => onToggle(l.id)} meta={`${l.filmCount.toLocaleString()} films`}>
+              <Check key={l.id} checked={selected.has(`l:${l.id}`)} onChange={() => onToggle(`l:${l.id}`)} meta={`${l.filmCount.toLocaleString()} films`}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <Icon name={l.sourceType === 'watchlist' ? 'bookmark' : 'list'} size={13} />
                   {l.name}
