@@ -35,7 +35,11 @@ async def serialize_custom_list(session: AsyncSession, custom_list: CustomList) 
         .join(Film, CustomListItem.tmdb_id == Film.tmdb_id)
         .where(CustomListItem.custom_list_id == custom_list.id)
     )
-    if custom_list.sort_order is SortOrder.RATING_DESC:
+    # En modo snapshot el orden se materializa en ``CustomListItem.position`` al
+    # refrescar — no re-ordenamos por rating al servir para que el output a
+    # Radarr quede congelado entre snapshots.
+    snapshot_mode = custom_list.snapshot_interval is not None
+    if not snapshot_mode and custom_list.sort_order is SortOrder.RATING_DESC:
         stmt = stmt.order_by(
             Film.letterboxd_avg_rating.is_(None),
             Film.letterboxd_avg_rating.desc(),

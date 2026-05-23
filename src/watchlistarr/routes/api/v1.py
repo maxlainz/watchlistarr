@@ -264,6 +264,8 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
         "rotationEnabled": cl.rotation_enabled,
         "rotationInterval": _td_hours(cl.rotation_interval),
         "rotationBatchSize": cl.rotation_batch_size,
+        "snapshotInterval": _td_hours(cl.snapshot_interval),
+        "lastSnapshotAt": _iso(cl.last_snapshot_at),
         "enabled": cl.enabled,
         "summary": summary,
     }
@@ -753,6 +755,7 @@ async def create_custom_list(
         rotation_enabled=bool(payload.get("rotationEnabled")),
         rotation_batch_size=int(payload.get("rotationBatchSize") or 1),
         rotation_interval=_td_from_hours(payload.get("rotationInterval")),
+        snapshot_interval=_td_from_hours(payload.get("snapshotInterval")),
     )
     session.add(cl)
     await session.flush()
@@ -802,6 +805,7 @@ async def update_custom_list(
     cl.rotation_enabled = bool(payload.get("rotationEnabled"))
     cl.rotation_batch_size = int(payload.get("rotationBatchSize") or 1)
     cl.rotation_interval = _td_from_hours(payload.get("rotationInterval"))
+    cl.snapshot_interval = _td_from_hours(payload.get("snapshotInterval"))
 
     await _save_sources(session, cl, include_ids, subtract_ids)
     await _save_excluded(session, cl, excluded_user_ids)

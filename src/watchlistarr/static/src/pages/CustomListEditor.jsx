@@ -30,6 +30,8 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
   const [rotationEnabled, setRotationEnabled] = React.useState(existing?.rotationEnabled || false);
   const [rotationInterval, setRotationInterval] = React.useState(existing?.rotationInterval ?? 168);
   const [rotationBatchSize, setRotationBatchSize] = React.useState(existing?.rotationBatchSize ?? 10);
+  const [snapshotEnabled, setSnapshotEnabled] = React.useState(existing?.snapshotInterval != null);
+  const [snapshotInterval, setSnapshotInterval] = React.useState(existing?.snapshotInterval ?? 168);
   const [showSubtract, setShowSubtract] = React.useState(subtracts.size > 0);
   const [showExclude, setShowExclude] = React.useState(excludedWatchers.size > 0);
   const [previewPool, setPreviewPool] = React.useState(existing ? existing.itemsServed : null);
@@ -76,6 +78,7 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
       rotationEnabled,
       rotationInterval: rotationEnabled ? parseInt(rotationInterval, 10) || null : null,
       rotationBatchSize: rotationEnabled ? parseInt(rotationBatchSize, 10) || 1 : 1,
+      snapshotInterval: snapshotEnabled ? parseInt(snapshotInterval, 10) || null : null,
     };
   };
 
@@ -361,6 +364,42 @@ const CustomListEditor = ({ navigate, users, customLists, refreshCustomLists, ed
                   <input className="input" type="number" min="1" value={rotationBatchSize} onChange={e => setRotationBatchSize(e.target.value)} />
                   <div className="hint">How many films cycle in & out each tick.</div>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Periodic snapshot */}
+        <div className="form-section">
+          <div>
+            <div className="form-section-title">Periodic snapshot<br/><span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-faint)' }}>Optional</span></div>
+            <div className="form-section-sub">Freeze the set and order served to Radarr, refreshing it on a schedule. Useful for &quot;top-N by rating&quot; lists you want stable.</div>
+          </div>
+          <div>
+            <label className="check-row" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg)' }} onClick={(e) => { e.preventDefault(); setSnapshotEnabled(!snapshotEnabled); }}>
+              <div className={`check-box ${snapshotEnabled ? 'checked' : ''}`}>
+                <Icon name="check" size={11} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>Enable periodic snapshot</div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 2 }}>
+                  Between snapshots the served output is 100% frozen — no rating-based reorder, no rotation cycle. At the interval, the full set is recomputed fresh.
+                </div>
+              </div>
+              <Icon name="clock" size={16} />
+            </label>
+            {snapshotEnabled && (
+              <div style={{ marginTop: 12 }}>
+                <div className="field">
+                  <label>Snapshot interval <Badge>hours</Badge></label>
+                  <input className="input" type="number" min="1" value={snapshotInterval} onChange={e => setSnapshotInterval(e.target.value)} />
+                  <div className="hint">24 ≈ daily, 168 ≈ weekly, 720 ≈ monthly.</div>
+                </div>
+                {rotationEnabled && (
+                  <div className="hint" style={{ marginTop: 8, padding: 8, background: 'var(--bg)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dim)' }}>
+                    Snapshot replaces time rotation. While both are enabled, snapshot takes precedence on each tick.
+                  </div>
+                )}
               </div>
             )}
           </div>

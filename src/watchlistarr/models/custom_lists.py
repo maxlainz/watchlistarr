@@ -51,6 +51,8 @@ class CustomList(Base):
     rotation_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     rotation_batch_size: Mapped[int] = mapped_column(default=1)
     last_rotated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    snapshot_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
+    last_snapshot_at: Mapped[datetime | None] = mapped_column(nullable=True)
     enabled: Mapped[bool] = mapped_column(default=True)
 
     items: Mapped[list[CustomListItem]] = relationship(

@@ -106,6 +106,15 @@ Por cada custom list:
 
 **Ortogonalidad con `watched_films`**: el RSS marca pelis como vistas; las custom lists con `excluded_watchers` no eliminan a la velocidad del RSS — pierden los items en la **siguiente rotación** (o en el siguiente recálculo).
 
+### Modo snapshot (alternativo a rotation)
+
+Cuando una custom list tiene `snapshot_interval` set, el rotation tick **no la rota**: en su lugar, llama a `refresh_snapshot()` que (si `now >= last_snapshot_at + snapshot_interval`) borra todos los `custom_list_items`, reejecuta `init_items()` para regenerar el set completo, y actualiza `last_snapshot_at`. Entre snapshots:
+
+- El set servido a Radarr es 100 % estable (no entra ni sale nada).
+- El orden también: en modo snapshot, `serialize_custom_list` **deja de re-ordenar por rating al servir** (incluso con `sort_order=RATING_DESC`) y sirve por `position` persistida, que `init_items` ya materializó en orden de ranking en el momento del último snapshot.
+
+Uso típico: "top-10 by rating" que quiero estable durante una semana y se refresque cada lunes. Activar snapshot prevalece sobre rotation aunque ambos estén configurados (el refresh completo hace inútil el cycle parcial).
+
 ## Modo "arranque inicial" (cuando se añade un user)
 
 Al añadir un user nuevo en la UI:
@@ -125,7 +134,7 @@ Overrides por entidad (NULL = heredar default de env):
 
 - `users.rss_interval`, `users.watchlist_incremental_interval`, `users.watchlist_full_interval`, `users.films_backstop_interval`, `users.discovery_interval` — editables en el colapsable "Advanced" del detalle de user (`/users/<user>`).
 - `lists.lists_incremental_interval`, `lists.lists_full_interval`, `lists.flap_confirm_scrapes` — editables en el colapsable "Advanced" por lista en la pestaña Lists.
-- `custom_lists.rotation_interval` — editable desde el editor de custom list.
+- `custom_lists.rotation_interval`, `custom_lists.snapshot_interval` — editables desde el editor de custom list. `snapshot_interval` activa el modo "snapshot periódico" (ver arriba), que congela el output a Radarr entre regeneraciones completas.
 - `ROTATION_TICK_INTERVAL` queda solo en env (ritmo del worker interno, no por entidad).
 
 La resolución del valor efectivo vive en `watchlistarr.services.intervals` y siempre se calcula como `entity.<col> or env.<key>` (umbral entero usa `is None`). Cuando un override se guarda o limpia desde la UI, el endpoint llama a `scheduler.sync_jobs()` y los jobs se re-crean con el nuevo trigger sin restart.

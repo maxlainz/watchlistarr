@@ -18,6 +18,7 @@ from watchlistarr.services.custom_lists import (
     eligible_pool,
     init_items,
     recalculate,
+    refresh_snapshot,
     resolve_full_pool,
     rotate,
     rotation_tick,
@@ -544,3 +545,138 @@ async def test_rotation_tick_handles_naive_datetime_from_db(
 
         rotated = await rotation_tick(session)
         assert rotated == 1
+
+
+async def test_refresh_snapshot_skips_within_cooldown(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session,
+        parent,
+        slug="snap-skip",
+        max_items=3,
+        sort_order=SortOrder.LETTERBOXD,
+        snapshot_interval=timedelta(days=7),
+    )
+    await init_items(session, cl)
+    # init_items stampa last_snapshot_at = now → próximo refresh debe skipear.
+    items_before = [
+        row[0]
+        for row in (
+            await session.execute(
+                select(CustomListItem.tmdb_id)
+                .where(CustomListItem.custom_list_id == cl.id)
+                .order_by(CustomListItem.position)
+            )
+        ).all()
+    ]
+
+    refreshed = await refresh_snapshot(session, cl)
+    assert refreshed == 0
+
+    items_after = [
+        row[0]
+        for row in (
+            await session.execute(
+                select(CustomListItem.tmdb_id)
+                .where(CustomListItem.custom_list_id == cl.id)
+                .order_by(CustomListItem.position)
+            )
+        ).all()
+    ]
+    assert items_before == items_after
+
+
+async def test_refresh_snapshot_regenerates_when_cooldown_elapsed(
+    session: AsyncSession,
+) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30, 40, 50])
+    cl = await _make_custom_list(
+        session,
+        parent,
+        slug="snap-go",
+        max_items=3,
+        sort_order=SortOrder.LETTERBOXD,
+        snapshot_interval=timedelta(hours=1),
+    )
+    await init_items(session, cl)
+    # Forzar el último snapshot al pasado.
+    cl.last_snapshot_at = utcnow() - timedelta(hours=2)
+    await session.flush()
+
+    refreshed = await refresh_snapshot(session, cl)
+    assert refreshed == 3
+    # Set congelado idéntico (mismo pool), pero last_snapshot_at se actualizó.
+    assert cl.last_snapshot_at is not None
+    assert cl.last_snapshot_at > utcnow() - timedelta(minutes=1)
+
+
+async def test_refresh_snapshot_noop_when_interval_unset(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [1, 2, 3])
+    cl = await _make_custom_list(session, parent, slug="no-snap", max_items=3)
+    refreshed = await refresh_snapshot(session, cl)
+    assert refreshed == 0
+
+
+async def test_serialize_with_snapshot_mode_freezes_order(session: AsyncSession) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30])
+    # Ratings: 30 más alto, luego 10, luego 20. Sin snapshot, RATING_DESC reordena.
+    rating_by_tmdb = {10: 3.5, 20: 2.0, 30: 4.5}
+    for tmdb_id, rating in rating_by_tmdb.items():
+        film = await session.get(Film, tmdb_id)
+        assert film is not None
+        film.letterboxd_avg_rating = rating
+    await session.flush()
+
+    cl = await _make_custom_list(
+        session,
+        parent,
+        slug="frozen",
+        max_items=3,
+        sort_order=SortOrder.RATING_DESC,
+        snapshot_interval=timedelta(days=7),
+    )
+    # Persistir items en orden de inserción (10, 20, 30) — position 0..2.
+    session.add_all(
+        [
+            CustomListItem(custom_list_id=cl.id, tmdb_id=10, position=0),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=20, position=1),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=30, position=2),
+        ]
+    )
+    await session.flush()
+
+    items = await serialize_custom_list(session, cl)
+    # En modo snapshot, el orden viene de position — NO de rating actual.
+    assert [it.tmdb_id for it in items] == [10, 20, 30]
+
+
+async def test_serialize_without_snapshot_mode_reorders_by_rating(
+    session: AsyncSession,
+) -> None:
+    _, parent = await _seed_user_list(session, [10, 20, 30])
+    rating_by_tmdb = {10: 3.5, 20: 2.0, 30: 4.5}
+    for tmdb_id, rating in rating_by_tmdb.items():
+        film = await session.get(Film, tmdb_id)
+        assert film is not None
+        film.letterboxd_avg_rating = rating
+    await session.flush()
+
+    cl = await _make_custom_list(
+        session,
+        parent,
+        slug="unfrozen",
+        max_items=3,
+        sort_order=SortOrder.RATING_DESC,
+    )
+    session.add_all(
+        [
+            CustomListItem(custom_list_id=cl.id, tmdb_id=10, position=0),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=20, position=1),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=30, position=2),
+        ]
+    )
+    await session.flush()
+
+    items = await serialize_custom_list(session, cl)
+    # Sin snapshot, RATING_DESC reordena: 30 (4.5) → 10 (3.5) → 20 (2.0).
+    assert [it.tmdb_id for it in items] == [30, 10, 20]

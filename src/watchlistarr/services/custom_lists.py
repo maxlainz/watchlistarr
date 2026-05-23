@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from watchlistarr.models.base import utcnow
@@ -254,6 +254,8 @@ async def init_items(session: AsyncSession, custom_list: CustomList) -> int:
         )
     if custom_list.rotation_enabled:
         custom_list.last_rotated_at = now
+    if custom_list.snapshot_interval is not None:
+        custom_list.last_snapshot_at = now
     await session.flush()
     logger.info("custom_list.init", custom_list_id=custom_list.id, chosen=len(chosen))
     return len(chosen)
@@ -305,6 +307,10 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
         if item.tmdb_id not in candidates:
             await session.delete(item)
     await session.flush()
+
+    if custom_list.snapshot_interval is not None:
+        custom_list.last_snapshot_at = utcnow()
+        await session.flush()
 
     if custom_list.max_items is None:
         return
@@ -402,16 +408,60 @@ async def rotate(session: AsyncSession, custom_list: CustomList) -> int:
     return batch
 
 
+async def refresh_snapshot(session: AsyncSession, custom_list: CustomList) -> int:
+    """Regenera el set completo de items respetando filtros, sources y sort_order
+    actuales. Reemplaza atómicamente ``custom_list_items``.
+
+    Si la custom list está en modo snapshot (``snapshot_interval`` not None),
+    skipea silenciosamente cuando aún no ha pasado el cooldown desde el último
+    refresh.
+    """
+    if custom_list.snapshot_interval is None:
+        return 0
+    now = utcnow()
+    last = custom_list.last_snapshot_at
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    if last is not None and last + custom_list.snapshot_interval > now:
+        return 0
+    await session.execute(
+        delete(CustomListItem).where(CustomListItem.custom_list_id == custom_list.id)
+    )
+    await session.flush()
+    count = await init_items(session, custom_list)
+    # ``init_items`` ya stampa ``last_snapshot_at`` cuando snapshot_interval no es None,
+    # pero pool vacío hace early-return sin stamp. Stampar también aquí para evitar
+    # loop de refresh tras pool vacío transitorio.
+    custom_list.last_snapshot_at = now
+    await session.flush()
+    logger.info("custom_list.snapshot_refreshed", custom_list_id=custom_list.id, items=count)
+    return count
+
+
 async def rotation_tick(session: AsyncSession) -> int:
     rows = (
-        (await session.execute(select(CustomList).where(CustomList.rotation_enabled.is_(True))))
+        (
+            await session.execute(
+                select(CustomList).where(
+                    or_(
+                        CustomList.rotation_enabled.is_(True),
+                        CustomList.snapshot_interval.is_not(None),
+                    )
+                )
+            )
+        )
         .scalars()
         .all()
     )
-    rotated = 0
+    handled = 0
     for custom_list in rows:
-        rotated += await rotate(session, custom_list)
-    return rotated
+        if custom_list.snapshot_interval is not None:
+            # Snapshot prevalece sobre rotation: el refresh completo hace inútil
+            # el cycle parcial.
+            handled += await refresh_snapshot(session, custom_list)
+        else:
+            handled += await rotate(session, custom_list)
+    return handled
 
 
 async def describe_sources(session: AsyncSession, custom_list: CustomList) -> str:

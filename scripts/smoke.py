@@ -264,6 +264,13 @@ def _exercise(base_url: str) -> None:
         any(cl["slug"] == "house" for cl in body["customLists"]),
         "house custom list no aparece",
     )
+    for cl in body["customLists"]:
+        for key in ("snapshotInterval", "lastSnapshotAt"):
+            _assert(key in cl, f"custom list {cl['slug']} sin {key}")
+        _assert(
+            cl["snapshotInterval"] is None,
+            f"{cl['slug']} snapshotInterval no parte en null",
+        )
 
     r = httpx.get(f"{base_url}/api/v1/activity?since=0")
     _assert(r.status_code == 200, f"activity != 200: {r.status_code}")
