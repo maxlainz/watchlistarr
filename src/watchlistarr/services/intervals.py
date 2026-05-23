@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 from watchlistarr.config import Settings
-from watchlistarr.models.base import utcnow
 from watchlistarr.models.lists import List
 from watchlistarr.models.users import User
 
@@ -40,15 +39,3 @@ def list_flap_threshold(lst: List, env: Settings) -> int:
     if lst.flap_confirm_scrapes is None:
         return env.flap_confirm_scrapes
     return lst.flap_confirm_scrapes
-
-
-def list_in_cooldown(lst: List) -> bool:
-    if lst.min_sync_interval is None or lst.last_synced_at is None:
-        return False
-    return utcnow() < lst.last_synced_at + lst.min_sync_interval
-
-
-def watchlist_in_cooldown(user: User, watchlist_row: List) -> bool:
-    if user.watchlist_min_sync_interval is None or watchlist_row.last_synced_at is None:
-        return False
-    return utcnow() < watchlist_row.last_synced_at + user.watchlist_min_sync_interval

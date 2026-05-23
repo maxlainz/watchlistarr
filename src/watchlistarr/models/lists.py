@@ -48,7 +48,6 @@ class List(Base):
 
     lists_incremental_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     lists_full_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
-    min_sync_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     flap_confirm_scrapes: Mapped[int | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship(back_populates="lists")

@@ -143,9 +143,6 @@ async def _serialize_user(
                 "fullInterval": _td_hours(
                     user.watchlist_full_interval if is_wl else lst.lists_full_interval
                 ),
-                "minSyncInterval": _td_hours(
-                    user.watchlist_min_sync_interval if is_wl else lst.min_sync_interval
-                ),
                 "flapConfirmScrapes": lst.flap_confirm_scrapes,
                 "defaultIncrementalInterval": _td_hours(
                     env.watchlist_incremental_interval if is_wl else env.lists_incremental_interval
@@ -267,6 +264,8 @@ async def _serialize_custom_list(session: AsyncSession, cl: CustomList) -> dict[
         "rotationEnabled": cl.rotation_enabled,
         "rotationInterval": _td_hours(cl.rotation_interval),
         "rotationBatchSize": cl.rotation_batch_size,
+        "snapshotInterval": _td_hours(cl.snapshot_interval),
+        "lastSnapshotAt": _iso(cl.last_snapshot_at),
         "enabled": cl.enabled,
         "summary": summary,
     }
@@ -580,17 +579,14 @@ async def save_list_settings(
 
     inc = _parse_optional_int(payload.get("incrementalInterval"))
     full = _parse_optional_int(payload.get("fullInterval"))
-    cooldown = _parse_optional_int(payload.get("minSyncInterval"))
     flap = _parse_optional_int(payload.get("flapConfirmScrapes"))
 
     if lst.source_type is SourceType.WATCHLIST:
         user.watchlist_incremental_interval = _td_from_hours(inc)
         user.watchlist_full_interval = _td_from_hours(full)
-        user.watchlist_min_sync_interval = _td_from_hours(cooldown)
     else:
         lst.lists_incremental_interval = _td_from_hours(inc)
         lst.lists_full_interval = _td_from_hours(full)
-        lst.min_sync_interval = _td_from_hours(cooldown)
     lst.flap_confirm_scrapes = flap
     await session.commit()
     scheduler = getattr(request.app.state, "scheduler", None)
@@ -759,6 +755,7 @@ async def create_custom_list(
         rotation_enabled=bool(payload.get("rotationEnabled")),
         rotation_batch_size=int(payload.get("rotationBatchSize") or 1),
         rotation_interval=_td_from_hours(payload.get("rotationInterval")),
+        snapshot_interval=_td_from_hours(payload.get("snapshotInterval")),
     )
     session.add(cl)
     await session.flush()
@@ -808,6 +805,7 @@ async def update_custom_list(
     cl.rotation_enabled = bool(payload.get("rotationEnabled"))
     cl.rotation_batch_size = int(payload.get("rotationBatchSize") or 1)
     cl.rotation_interval = _td_from_hours(payload.get("rotationInterval"))
+    cl.snapshot_interval = _td_from_hours(payload.get("snapshotInterval"))
 
     await _save_sources(session, cl, include_ids, subtract_ids)
     await _save_excluded(session, cl, excluded_user_ids)

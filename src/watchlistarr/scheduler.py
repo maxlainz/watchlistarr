@@ -251,20 +251,11 @@ async def _with_watchlist(
     settings: Settings,
     user_id: int,
     body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, int], Awaitable[Any]],
-    *,
-    kind: str,
 ) -> None:
-    """Resuelve la watchlist del user en sesión corta y delega al body con su list_id.
-
-    Respeta el cooldown ``user.watchlist_min_sync_interval`` — si el último sync
-    fue hace menos tiempo que el cooldown, skip silenciosamente.
-    """
+    """Resuelve la watchlist del user en sesión corta y delega al body con su list_id."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
-            user = await session.get(User, user_id)
-            if user is None:
-                return
             row = (
                 await session.execute(
                     select(ListModel).where(
@@ -274,13 +265,6 @@ async def _with_watchlist(
                 )
             ).scalar_one_or_none()
             if row is None:
-                return
-            if intervals.watchlist_in_cooldown(user, row):
-                logger.info(
-                    "scheduler.cooldown_skip",
-                    user_id=user_id,
-                    kind=f"watchlist_{kind}",
-                )
                 return
             list_id = row.id
         await body(factory, client, list_id)
@@ -297,15 +281,13 @@ async def _run_rss(
 async def _run_watchlist_incremental(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    await _with_watchlist(
-        factory, settings, user_id, sync_watchlist_incremental, kind="incremental"
-    )
+    await _with_watchlist(factory, settings, user_id, sync_watchlist_incremental)
 
 
 async def _run_watchlist_full(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    await _with_watchlist(factory, settings, user_id, sync_watchlist_full, kind="full")
+    await _with_watchlist(factory, settings, user_id, sync_watchlist_full)
 
 
 async def _run_discovery(
@@ -320,24 +302,9 @@ async def _run_films_backstop(
     await _with_user(factory, settings, user_id, backstop_films_for_user)
 
 
-async def _list_cooldown_skip(
-    factory: async_sessionmaker[AsyncSession], list_id: int, kind: str
-) -> bool:
-    async with factory() as session:
-        lst = await session.get(ListModel, list_id)
-        if lst is None:
-            return True
-        if intervals.list_in_cooldown(lst):
-            logger.info("scheduler.cooldown_skip", list_id=list_id, kind=f"list_{kind}")
-            return True
-    return False
-
-
 async def _run_list_incremental(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    if await _list_cooldown_skip(factory, list_id, "incremental"):
-        return
     client = LetterboxdClient(settings)
     try:
         await sync_list_incremental(factory, client, list_id)
@@ -348,8 +315,6 @@ async def _run_list_incremental(
 async def _run_list_full(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    if await _list_cooldown_skip(factory, list_id, "full"):
-        return
     client = LetterboxdClient(settings)
     try:
         await sync_list_full(factory, client, list_id)

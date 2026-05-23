@@ -78,6 +78,7 @@ Form en una sola página con secciones:
 7. **Serving** — Max items + Sort order (letterboxd / random / reverse / `rating_desc` = Letterboxd avg rating high→low; este último sí se aplica al servir, los otros usan `position`).
 8. **Static filters** *(optional)* — min/max rating; **release year** con toggle Fixed/Relative (Fixed: min/max year; Relative: "Released in the last N years" con helper que muestra el rango por año calendario, p.ej. `Calendar years 2022–2026` + nota aclarando que es por año, no rolling N días, porque Letterboxd no expone fechas exactas); **added in the last N days** (input relativo único). Los modos relativos se persisten en `year_last_n` / `added_last_n_days` y se recalculan contra `utcnow()` en cada serve.
 9. **Time rotation** *(optional)* — toggle + interval (horas) + batch size.
+10. **Periodic snapshot** *(optional)* — toggle + interval (horas). Cuando está activo, el set y orden servidos a Radarr quedan congelados entre snapshots; el rotation tick llama `refresh_snapshot` en lugar de `rotate`, regenerando todo desde cero cuando expira el intervalo. Prevalece sobre Time rotation si ambos están activos. Útil para "top-N by rating" estables.
 
 Save → `POST /api/v1/custom-lists` (nuevo) o `PUT /api/v1/custom-lists/<slug>` (edit). El backend reusa `init_items` / `recalculate` del service existente.
 
