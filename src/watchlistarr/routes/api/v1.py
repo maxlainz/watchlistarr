@@ -143,6 +143,9 @@ async def _serialize_user(
                 "fullInterval": _td_hours(
                     user.watchlist_full_interval if is_wl else lst.lists_full_interval
                 ),
+                "minSyncInterval": _td_hours(
+                    user.watchlist_min_sync_interval if is_wl else lst.min_sync_interval
+                ),
                 "flapConfirmScrapes": lst.flap_confirm_scrapes,
                 "defaultIncrementalInterval": _td_hours(
                     env.watchlist_incremental_interval if is_wl else env.lists_incremental_interval
@@ -577,14 +580,17 @@ async def save_list_settings(
 
     inc = _parse_optional_int(payload.get("incrementalInterval"))
     full = _parse_optional_int(payload.get("fullInterval"))
+    cooldown = _parse_optional_int(payload.get("minSyncInterval"))
     flap = _parse_optional_int(payload.get("flapConfirmScrapes"))
 
     if lst.source_type is SourceType.WATCHLIST:
         user.watchlist_incremental_interval = _td_from_hours(inc)
         user.watchlist_full_interval = _td_from_hours(full)
+        user.watchlist_min_sync_interval = _td_from_hours(cooldown)
     else:
         lst.lists_incremental_interval = _td_from_hours(inc)
         lst.lists_full_interval = _td_from_hours(full)
+        lst.min_sync_interval = _td_from_hours(cooldown)
     lst.flap_confirm_scrapes = flap
     await session.commit()
     scheduler = getattr(request.app.state, "scheduler", None)

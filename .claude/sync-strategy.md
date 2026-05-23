@@ -130,6 +130,15 @@ Overrides por entidad (NULL = heredar default de env):
 
 La resolución del valor efectivo vive en `watchlistarr.services.intervals` y siempre se calcula como `entity.<col> or env.<key>` (umbral entero usa `is None`). Cuando un override se guarda o limpia desde la UI, el endpoint llama a `scheduler.sync_jobs()` y los jobs se re-crean con el nuevo trigger sin restart.
 
+### Cooldown (ceiling encima del schedule)
+
+Adicionalmente, dos columnas opcionales actúan como **ceiling duro** sobre los intervalos del scheduler:
+
+- `lists.min_sync_interval` para custom lists de Letterboxd.
+- `users.watchlist_min_sync_interval` para la watchlist.
+
+Si `now < last_synced_at + min_sync_interval`, los jobs incremental y full skipean silenciosamente (logging `scheduler.cooldown_skip`). `NULL` = sin cooldown (comportamiento previo). El check vive en los wrappers `_run_*` de `scheduler.py`, por lo que solo aplica al scheduler automático; un futuro botón "force sync" que llame directamente a `sync_*` lo saltará. RSS y rotation tick no respetan cooldown.
+
 ## Cross-references
 
 - Tablas que alimentamos: [`data-model.md`](data-model.md).

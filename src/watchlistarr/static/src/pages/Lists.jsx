@@ -95,6 +95,7 @@ const AdvancedPanel = ({ user, list, refreshUsers, showToast }) => {
   const adv = list.advanced || {};
   const [inc, setInc] = React.useState(adv.incrementalInterval ?? '');
   const [full, setFull] = React.useState(adv.fullInterval ?? '');
+  const [cooldown, setCooldown] = React.useState(adv.minSyncInterval ?? '');
   const [flap, setFlap] = React.useState(adv.flapConfirmScrapes ?? '');
   const [saving, setSaving] = React.useState(false);
 
@@ -106,6 +107,7 @@ const AdvancedPanel = ({ user, list, refreshUsers, showToast }) => {
       await window.API.saveListSettings(user.username, list.id, {
         incrementalInterval: inc === '' ? null : parseInt(inc, 10),
         fullInterval: full === '' ? null : parseInt(full, 10),
+        minSyncInterval: cooldown === '' ? null : parseInt(cooldown, 10),
         flapConfirmScrapes: flap === '' ? null : parseInt(flap, 10),
       });
       await refreshUsers();
@@ -138,6 +140,16 @@ const AdvancedPanel = ({ user, list, refreshUsers, showToast }) => {
                placeholder={placeholder(adv.defaultFullInterval)}
                onChange={e => setFull(e.target.value)} />
         <div className="hint">Re-fetches every page. Catches removals and slug renames.</div>
+      </div>
+      <div className="field">
+        <label>
+          Min interval between syncs
+          <Badge>hours</Badge>
+        </label>
+        <input className="input sm" type="number" min="1" value={cooldown}
+               placeholder="off"
+               onChange={e => setCooldown(e.target.value)} />
+        <div className="hint">Hard ceiling — even if the scheduler ticks sooner, syncs skip until this much time has passed since the last sync. Leave empty to disable. (24 ≈ daily, 168 ≈ weekly, 720 ≈ monthly)</div>
       </div>
       <div className="field">
         <label>

@@ -260,6 +260,38 @@ def _exercise(base_url: str) -> None:
         _assert("syncingListIds" in u, f"user {u['username']} sin syncingListIds")
         _assert(u["discoveryRunning"] is False, f"user {u['username']} discoveryRunning != False")
         _assert(u["syncingListIds"] == [], f"user {u['username']} syncingListIds no vacío")
+        for lst in u["lists"]:
+            adv = lst.get("advanced") or {}
+            for key in (
+                "incrementalInterval",
+                "fullInterval",
+                "minSyncInterval",
+                "flapConfirmScrapes",
+                "defaultIncrementalInterval",
+                "defaultFullInterval",
+                "defaultFlapConfirmScrapes",
+            ):
+                _assert(key in adv, f"{u['username']}/{lst['slug']} advanced sin {key}")
+            _assert(
+                adv["minSyncInterval"] is None,
+                f"{u['username']}/{lst['slug']} minSyncInterval no parte en null",
+            )
+
+    # Round-trip del cooldown: POST → GET → valor persistido.
+    alice = next(u for u in body["users"] if u["username"] == "alice")
+    alice_watchlist = next(lst for lst in alice["lists"] if lst["sourceType"] == "watchlist")
+    r = httpx.post(
+        f"{base_url}/api/v1/users/alice/lists/{alice_watchlist['id']}/settings",
+        json={"minSyncInterval": 168},
+    )
+    _assert(r.status_code == 200, f"save settings != 200: {r.status_code}")
+    r = httpx.get(f"{base_url}/api/v1/bootstrap")
+    alice_again = next(u for u in r.json()["users"] if u["username"] == "alice")
+    wl_again = next(lst for lst in alice_again["lists"] if lst["sourceType"] == "watchlist")
+    _assert(
+        wl_again["advanced"]["minSyncInterval"] == 168,
+        f"minSyncInterval no persistió: {wl_again['advanced']['minSyncInterval']}",
+    )
     _assert(
         any(cl["slug"] == "house" for cl in body["customLists"]),
         "house custom list no aparece",

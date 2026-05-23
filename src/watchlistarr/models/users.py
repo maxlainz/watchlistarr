@@ -25,6 +25,7 @@ class User(Base):
         Interval, nullable=True
     )
     watchlist_full_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
+    watchlist_min_sync_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     films_backstop_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
     discovery_interval: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
 
