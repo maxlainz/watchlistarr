@@ -6,6 +6,8 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-23
+
 ### Added
 - Custom lists: pueden usar otras custom lists como source (`include` o
   `subtract`). Semántica: A ve lo que B sirve a Radarr ahora (

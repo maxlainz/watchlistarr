@@ -1,6 +1,6 @@
 [project]
 name = "watchlistarr"
-version = "1.4.0"
+version = "1.5.0"
 description = "Sirve listas y watchlists de Letterboxd a Radarr como Custom List."
 readme = "README.md"
 requires-python = ">=3.12"
