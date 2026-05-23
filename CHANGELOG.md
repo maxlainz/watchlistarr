@@ -6,6 +6,22 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Added
+- Custom lists: pueden usar otras custom lists como source (`include` o
+  `subtract`). Semántica: A ve lo que B sirve a Radarr ahora (
+  `custom_list_items` materializados), respetando `max_items`, `sort_order`,
+  `snapshot_interval` y rotación de B. Coherencia eventual — A recompone en
+  su propia tick (edición, rotation, snapshot). Validación server-side de
+  ciclos con BFS antes de guardar. El editor muestra una nueva sección
+  "Custom lists" en el SourcePicker.
+
+### Changed
+- `custom_list_sources` migra a un esquema polimórfico: nuevo PK surrogate
+  `id` y columna nullable `source_custom_list_id` (FK a `custom_lists`).
+  Exactamente una de `list_id` / `source_custom_list_id` debe estar set
+  (CHECK constraint). Migración 0009. Los datos existentes (todos con
+  `list_id` set) se preservan.
+
 ## [1.4.0] - 2026-05-23
 
 ### Added

@@ -59,7 +59,9 @@ class CustomList(Base):
         back_populates="custom_list", cascade="all, delete-orphan"
     )
     sources: Mapped[list[CustomListSource]] = relationship(
-        back_populates="custom_list", cascade="all, delete-orphan"
+        back_populates="custom_list",
+        cascade="all, delete-orphan",
+        foreign_keys="CustomListSource.custom_list_id",
     )
     excluded_watchers: Mapped[list[CustomListExcludedWatcher]] = relationship(
         back_populates="custom_list", cascade="all, delete-orphan"

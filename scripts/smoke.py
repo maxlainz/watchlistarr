@@ -219,6 +219,28 @@ async def _seed(db_url: str) -> None:
             )
             await session.flush()
             await init_items(session, top_rated)
+
+            # Custom list que usa otra custom list como source: "top-of-house"
+            # = lo que `house` está sirviendo, ordenado por rating, tope-2.
+            top_of_house = CustomList(
+                slug="top-of-house",
+                name="Top of house",
+                op=CombinationOp.UNION,
+                sort_order=SortOrder.RATING_DESC,
+                max_items=2,
+                enabled=True,
+            )
+            session.add(top_of_house)
+            await session.flush()
+            session.add(
+                CustomListSource(
+                    custom_list_id=top_of_house.id,
+                    source_custom_list_id=house.id,
+                    role=SourceRole.INCLUDE,
+                )
+            )
+            await session.flush()
+            await init_items(session, top_of_house)
             await session.commit()
     finally:
         await engine.dispose()
@@ -319,6 +341,18 @@ def _exercise(base_url: str) -> None:
     _assert(
         [i["tmdb_id"] for i in top_items] == [40, 20, 50],
         f"top-rated esperaba [40, 20, 50], obtuvo {[i['tmdb_id'] for i in top_items]}",
+    )
+
+    # Custom list que usa otra custom list como source. `house` sirve 5 films
+    # (10, 20, 30, 40, 50). Alice ya vio 10 pero está dentro de `house` (no
+    # se aplica exclude_watchers cuando A no lo define). Top-2 por rating de
+    # esos 5 según ratings (40→4.7, 20→4.2, 50→3.9, 10→3.5, 30→2.8) = [40, 20].
+    r = httpx.get(f"{base_url}/lists/top-of-house/")
+    _assert(r.status_code == 200, "top-of-house custom list != 200")
+    toh = r.json()
+    _assert(
+        [i["tmdb_id"] for i in toh] == [40, 20],
+        f"top-of-house esperaba [40, 20], obtuvo {[i['tmdb_id'] for i in toh]}",
     )
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")
