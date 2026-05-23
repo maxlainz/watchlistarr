@@ -6,6 +6,33 @@ y este proyecto usa [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-23
+
+### Added
+- Custom lists: nuevo modo opt-in **"Periodic snapshot"** por lista.
+  Cuando está activo, el set y el orden servidos a Radarr quedan
+  congelados entre snapshots; en el `rotation_tick`, si toca, se
+  regenera el set completo desde cero respetando filtros, sources y
+  `sort_order` actuales. Pensado para "top-N by rating" estables que
+  no dependan de reordenamientos por oscilaciones de rating de un
+  estreno reciente. Toggle + intervalo (horas) en el editor de custom
+  list; backend usa `custom_lists.snapshot_interval` /
+  `last_snapshot_at`. Prevalece sobre rotation cuando ambos están
+  activos. `serialize_custom_list` deja de re-ordenar por rating al
+  servir si la lista está en modo snapshot — sirve por `position`
+  persistida (que `init_items` materializa en orden de ranking).
+- Migración Alembic `0008_swap_cooldown_for_snapshot` con las nuevas
+  columnas en `custom_lists`.
+
+### Removed
+- Cooldown duro sobre scrapes Letterboxd introducido en v1.3.0
+  (`lists.min_sync_interval` / `users.watchlist_min_sync_interval`,
+  más el field "Min interval between syncs" en el panel Advanced de
+  Lists). No resolvía el problema correcto: el output de Radarr
+  cambiaba por reordenamiento de custom lists, no por frecuencia de
+  scrapes. La migración 0008 dropea las columnas; el código que las
+  usaba se retiró del scheduler, endpoint, UI y tests.
+
 ## [1.3.0] - 2026-05-22
 
 ### Added
