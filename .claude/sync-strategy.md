@@ -61,9 +61,9 @@ Razón: el coste de un falso positivo es asimétrico:
 - Cada fetch del RSS itera los `<item>` con prefix `letterboxd-watch-` y `letterboxd-review-`.
 - Dedup por `<guid>` contra `viewing_logs.letterboxd_guid`.
 - Para cada nuevo guid:
-  1. Insertar fila en `viewing_logs`.
+  1. Insertar fila en `viewing_logs` (con la `watched_date` real del item).
   2. Upsert en `watched_films` por `(user_id, tmdb_id)`:
-     - Si no existe: `first_seen_watched_at = <watched_date del item>`, `last_seen_watched_at = <watched_date>`, `source='rss'`.
+     - Si no existe: `first_seen_watched_at = now()` (momento del poll), `last_seen_watched_at = now()`, `source='rss'`. La fecha real del visionado vive en `viewing_logs.watched_date`; estos timestamps registran cuándo lo vimos nosotros.
      - Si existe: actualizar solo `last_seen_watched_at` (cualquier rewatch lo refresca; `first_seen_watched_at` es inmutable).
 - Items con prefix `letterboxd-list-` se ignoran (las listas se descubren por `/lists/`).
 
