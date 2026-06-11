@@ -8,6 +8,8 @@ from typing import Annotated
 from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from watchlistarr import __version__
+
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
 _DURATION_UNITS: dict[str, int] = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
@@ -41,7 +43,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
     log_format: str = "plain"
     database_url: str = "sqlite+aiosqlite:///data/watchlistarr.db"
-    user_agent: str = "watchlistarr/1.0.0 (+https://github.com/maxlainz/watchlistarr)"
+    user_agent: str = f"watchlistarr/{__version__} (+https://github.com/maxlainz/watchlistarr)"
     letterboxd_offline: bool = False
 
     rss_interval: Duration = Field(default=timedelta(minutes=15))

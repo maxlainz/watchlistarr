@@ -18,10 +18,7 @@ from watchlistarr.services.radarr import (
     serialize_custom_list,
     serialize_list,
 )
-
-RESERVED_USERS: frozenset[str] = frozenset(
-    {"all", "api", "admin", "static", "health", "_", "lists"}
-)
+from watchlistarr.services.scrape.initial_run import RESERVED_USERNAMES
 
 router = APIRouter()
 
@@ -60,7 +57,7 @@ async def user_watchlist_endpoint(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    if username in RESERVED_USERS:
+    if username in RESERVED_USERNAMES:
         raise HTTPException(status_code=404)
     user = (
         await session.execute(select(User).where(User.letterboxd_username == username))
@@ -88,7 +85,7 @@ async def user_slug_endpoint(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    if username in RESERVED_USERS:
+    if username in RESERVED_USERNAMES:
         raise HTTPException(status_code=404)
     user = (
         await session.execute(select(User).where(User.letterboxd_username == username))

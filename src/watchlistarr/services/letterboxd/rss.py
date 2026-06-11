@@ -4,8 +4,11 @@ from datetime import datetime
 from typing import Any
 
 import feedparser
+import structlog
 
 from watchlistarr.schemas.letterboxd import RssEvent
+
+logger = structlog.get_logger(__name__)
 
 _ACCEPTED_PREFIXES = ("letterboxd-watch-", "letterboxd-review-")
 _IGNORED_PREFIXES = ("letterboxd-list-",)
@@ -32,6 +35,12 @@ def _parse_entry(entry: Any) -> RssEvent | None:
 
     tmdb_movie_id = entry.get("tmdb_movieid")
     if not tmdb_movie_id:
+        # Series (tmdb:tvId) o items sin movieId: Radarr es solo películas.
+        logger.info(
+            "rss.skipped_no_movie_id",
+            guid=guid,
+            tmdb_tv_id=entry.get("tmdb_tvid"),
+        )
         return None
     try:
         tmdb_id = int(tmdb_movie_id)
