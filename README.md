@@ -64,7 +64,8 @@ Open `http://localhost:8080` in your browser. That's it — everything else is s
 3. *(Optional)* Go to **Custom Lists** to combine several lists into one, with filters and rotation.
 4. Every list has a **Copy URL** button. That URL is what you give to Radarr.
 
-> The first sync of a big list can take a while — watchlistarr fetches slowly on purpose to be gentle with Letterboxd. You can watch progress live in the **Activity** tab. After the first sync, updates are quick.
+> [!IMPORTANT]
+> **The first sync of a big list takes a while.** watchlistarr fetches slowly on purpose to be gentle with Letterboxd — a small list is done in seconds, but a watchlist with thousands of films can take tens of minutes the first time. This is normal: leave it running and watch progress live in the **Activity** tab. Once the first sync finishes, updates only fetch changes and are quick.
 
 ## Connecting Radarr
 
