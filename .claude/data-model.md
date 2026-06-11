@@ -25,7 +25,7 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | `custom_list_items` | `(custom_list_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas. FIFO por `served_since` durante la rotación |
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
-| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos). **No expuesto en UI** — los logs reemplazaron este feed |
+| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit de todo scrape (onboarding y periódicos). Alimenta el dashboard (`recentActivity`, `recentErrors`) y los spinners de la UI (`status='running'`). Al arrancar, los runs `running` huérfanos se marcan `error` ("interrupted by restart"). Job diario `prune-scrape-runs` borra runs de más de 30 días |
 
 > No hay tabla global de settings. Los **defaults** de todos los intervalos viven en env vars (inmutables tras arranque); los **overrides** viven en columnas nullable de `users` y `lists`. El ritmo del rotation worker (`ROTATION_TICK_INTERVAL`) y `FLAP_CONFIRM_SCRAPES` también vienen de env, este último con override por lista.
 

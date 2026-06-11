@@ -16,6 +16,9 @@ Principio rector: **la DB es autoritativa**. Lo que servimos a Radarr nunca se c
 | `/{user}/films/` página 1 (backstop) | hot | `FILMS_BACKSTOP_INTERVAL` | 24 h | `watched_films` (rellena gaps del RSS, sin fecha) |
 | `/{user}/lists/` (discovery) | discovery | `DISCOVERY_INTERVAL` | 7 d | `lists` (descubre listas nuevas o desaparecidas) |
 | Rotation tick (interno, sin red) | scheduled | `ROTATION_TICK_INTERVAL` | 1 h | `custom_list_items` de custom lists cuyo `last_rotated_at + rotation_interval ≤ now` |
+| Prune scrape runs (interno, sin red) | scheduled | — (fijo) | 24 h | Borra `scrape_runs` con más de 30 días |
+
+Todos los jobs (onboarding y periódicos) se envuelven con `with_scrape_audit`: cada ejecución deja un `scrape_runs` con `status` y `error`. Un fallo en un sync de lista/watchlist marca además `lists.last_sync_status='error'`.
 
 **Principio**: RSS-driven en caliente, scrapes incrementales frecuentes para detectar adiciones, scrapes completos espaciados para confirmar todo lo demás.
 

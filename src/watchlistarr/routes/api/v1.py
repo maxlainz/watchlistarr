@@ -317,6 +317,8 @@ def _job_label(job_id: str, users_by_id: dict[int, str]) -> dict[str, str]:
     """Pretty-print an APScheduler job id for the dashboard 'next scheduled' panel."""
     if job_id == "rotation-tick":
         return {"label": "Custom lists", "detail": "Rotation tick", "kind": "rotation"}
+    if job_id == "prune-scrape-runs":
+        return {"label": "Maintenance", "detail": "Prune old scrape runs", "kind": "sync"}
     parts = job_id.split("-")
     if len(parts) >= 2 and parts[0] == "rss":
         uid = int(parts[-1])

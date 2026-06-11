@@ -2,22 +2,24 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import select
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from watchlistarr.config import Settings
-from watchlistarr.models.enums import SourceType
+from watchlistarr.models.enums import ScrapeSource, SourceType, SyncStatus
 from watchlistarr.models.lists import List as ListModel
+from watchlistarr.models.scrape_runs import ScrapeRun
 from watchlistarr.models.users import User
 from watchlistarr.services import intervals
 from watchlistarr.services.custom_lists import rotation_tick
 from watchlistarr.services.letterboxd.client import LetterboxdClient
+from watchlistarr.services.scrape.audit import with_scrape_audit
 from watchlistarr.services.scrape.discovery import discover_lists
 from watchlistarr.services.scrape.films_backstop import backstop_films_for_user
 from watchlistarr.services.scrape.lists import sync_list_full, sync_list_incremental
@@ -28,6 +30,8 @@ from watchlistarr.services.scrape.watchlist import (
 )
 
 logger = structlog.get_logger(__name__)
+
+SCRAPE_RUN_RETENTION = timedelta(days=30)
 
 
 def _seconds(td: timedelta) -> int:
@@ -91,6 +95,13 @@ class JobScheduler:
             _seconds(env.rotation_tick_interval),
             self._factory,
             name="Custom list rotation tick",
+        )
+        self._add(
+            "prune-scrape-runs",
+            _run_prune_scrape_runs,
+            _seconds(timedelta(days=1)),
+            self._factory,
+            name="Prune old scrape runs",
         )
 
         for user in users:
@@ -227,21 +238,32 @@ async def _watchlist_enabled_by_user(session: AsyncSession, user_ids: list[int])
     return {lst.user_id: True for lst in rows}
 
 
+async def _mark_list_sync_error(factory: async_sessionmaker[AsyncSession], list_id: int) -> None:
+    async with factory() as session:
+        row = await session.get(ListModel, list_id)
+        if row is None:
+            return
+        row.last_sync_status = SyncStatus.ERROR
+        await session.commit()
+
+
 async def _with_user(
     factory: async_sessionmaker[AsyncSession],
     settings: Settings,
     user_id: int,
+    source: ScrapeSource,
     body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, User], Awaitable[Any]],
 ) -> None:
-    """Lookup del user en sesión corta y delega al body. El body abre sus propias
-    sesiones de escritura para no mantener el write-lock durante HTTP."""
+    """Lookup del user en sesión corta y delega al body bajo auditoría. El body
+    abre sus propias sesiones de escritura para no mantener el write-lock
+    durante HTTP."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
             user = await session.get(User, user_id)
             if user is None:
                 return
-        await body(factory, client, user)
+        await with_scrape_audit(factory, source, user_id, body(factory, client, user))
     finally:
         await client.aclose()
 
@@ -252,7 +274,8 @@ async def _with_watchlist(
     user_id: int,
     body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, int], Awaitable[Any]],
 ) -> None:
-    """Resuelve la watchlist del user en sesión corta y delega al body con su list_id."""
+    """Resuelve la watchlist del user en sesión corta y delega al body con su
+    list_id bajo auditoría; un fallo marca `last_sync_status=error`."""
     client = LetterboxdClient(settings)
     try:
         async with factory() as session:
@@ -267,7 +290,32 @@ async def _with_watchlist(
             if row is None:
                 return
             list_id = row.id
-        await body(factory, client, list_id)
+        try:
+            await with_scrape_audit(
+                factory, ScrapeSource.WATCHLIST, list_id, body(factory, client, list_id)
+            )
+        except Exception:
+            await _mark_list_sync_error(factory, list_id)
+            raise
+    finally:
+        await client.aclose()
+
+
+async def _with_list(
+    factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    list_id: int,
+    body: Callable[[async_sessionmaker[AsyncSession], LetterboxdClient, int], Awaitable[Any]],
+) -> None:
+    client = LetterboxdClient(settings)
+    try:
+        try:
+            await with_scrape_audit(
+                factory, ScrapeSource.LIST, list_id, body(factory, client, list_id)
+            )
+        except Exception:
+            await _mark_list_sync_error(factory, list_id)
+            raise
     finally:
         await client.aclose()
 
@@ -275,7 +323,7 @@ async def _with_watchlist(
 async def _run_rss(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    await _with_user(factory, settings, user_id, poll_rss_for_user)
+    await _with_user(factory, settings, user_id, ScrapeSource.RSS, poll_rss_for_user)
 
 
 async def _run_watchlist_incremental(
@@ -293,36 +341,43 @@ async def _run_watchlist_full(
 async def _run_discovery(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    await _with_user(factory, settings, user_id, discover_lists)
+    await _with_user(factory, settings, user_id, ScrapeSource.DISCOVERY, discover_lists)
 
 
 async def _run_films_backstop(
     factory: async_sessionmaker[AsyncSession], settings: Settings, user_id: int
 ) -> None:
-    await _with_user(factory, settings, user_id, backstop_films_for_user)
+    await _with_user(factory, settings, user_id, ScrapeSource.FILMS, backstop_films_for_user)
 
 
 async def _run_list_incremental(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    client = LetterboxdClient(settings)
-    try:
-        await sync_list_incremental(factory, client, list_id)
-    finally:
-        await client.aclose()
+    await _with_list(factory, settings, list_id, sync_list_incremental)
 
 
 async def _run_list_full(
     factory: async_sessionmaker[AsyncSession], settings: Settings, list_id: int
 ) -> None:
-    client = LetterboxdClient(settings)
-    try:
-        await sync_list_full(factory, client, list_id)
-    finally:
-        await client.aclose()
+    await _with_list(factory, settings, list_id, sync_list_full)
 
 
-async def _run_rotation_tick(factory: async_sessionmaker[AsyncSession]) -> None:
+async def _rotation_tick_body(factory: async_sessionmaker[AsyncSession]) -> None:
     async with factory() as session:
         await rotation_tick(session)
         await session.commit()
+
+
+async def _run_rotation_tick(factory: async_sessionmaker[AsyncSession]) -> None:
+    await with_scrape_audit(factory, ScrapeSource.ROTATION, None, _rotation_tick_body(factory))
+
+
+async def _run_prune_scrape_runs(factory: async_sessionmaker[AsyncSession]) -> None:
+    cutoff = datetime.now(UTC) - SCRAPE_RUN_RETENTION
+    async with factory() as session:
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(delete(ScrapeRun).where(ScrapeRun.started_at < cutoff)),
+        )
+        await session.commit()
+    logger.info("scrape_runs.pruned", deleted=result.rowcount)
