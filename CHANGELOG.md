@@ -6,6 +6,8 @@ and the project uses [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-06-11
+
 ### Fixed
 - Radarr endpoints: disabled lists are no longer served. `/<user>/<slug>/`
   and `/<user>/watchlist/` now return 404 for lists the user disabled —
