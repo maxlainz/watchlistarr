@@ -1,7 +1,5 @@
 # watchlistarr
 
-Alternativa moderna a [letterboxd-list-radarr](https://github.com/screeny05/letterboxd-list-radarr) (deprecado por cambios en la API de Letterboxd).
-
 Scrapea listas y RSS públicos de Letterboxd → DB interna → expone una API que Radarr consume como custom list.
 Docker-based, con UI web mínima para controlar sort order, tamaño de servido a Radarr y rotación de catálogo.
 
