@@ -6,6 +6,10 @@ and the project uses [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- The Docker image is now also published to GitHub Container Registry
+  (`ghcr.io/maxlainz/watchlistarr`) with the same tags as Docker Hub.
+
 ### Changed
 - License changed from MIT to GPL-3.0-or-later.
 - README rewritten for end users: docker-compose-first install, plain
