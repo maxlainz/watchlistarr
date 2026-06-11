@@ -171,12 +171,8 @@ Internal docs (architecture, scraping rules, data model, release process) live i
 
 Bug reports and feature requests are welcome — [open an issue](https://github.com/maxlainz/watchlistarr/issues). For code changes, open a PR against the `dev` branch and make sure the five CI checks pass (`ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`).
 
-## Credits
-
-Inspired by [letterboxd-list-radarr](https://github.com/screeny05/letterboxd-list-radarr), which stopped working after Letterboxd's API changes.
-
-watchlistarr is not affiliated with or endorsed by Letterboxd or Radarr.
-
 ## License
 
 [GPL-3.0-or-later](LICENSE).
+
+watchlistarr is not affiliated with or endorsed by Letterboxd or Radarr.
