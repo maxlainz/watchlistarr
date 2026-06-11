@@ -1,0 +1,34 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        1. Added user X
+        2. Enabled their watchlist
+        3. Radarr's Test button fails with ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: watchlistarr version
+      description: Docker tag or the `version` field from `/healthz`.
+      placeholder: "1.5.1"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output of `docker compose logs watchlistarr` or the Activity tab around the failure.
+      render: text
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Anything unusual about your setup (reverse proxy, ARM device, Radarr version, etc.).
