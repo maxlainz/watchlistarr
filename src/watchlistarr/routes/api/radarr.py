@@ -75,7 +75,7 @@ async def user_watchlist_endpoint(
             )
         )
     ).scalar_one_or_none()
-    if watchlist is None:
+    if watchlist is None or not watchlist.enabled:
         raise HTTPException(status_code=404, detail="watchlist not found")
     items = await serialize_list(session, watchlist.id)
     return _respond(items, request)
@@ -100,7 +100,7 @@ async def user_slug_endpoint(
             select(ListModel).where(ListModel.user_id == user.id, ListModel.slug == slug)
         )
     ).scalar_one_or_none()
-    if list_row is None:
+    if list_row is None or not list_row.enabled:
         raise HTTPException(status_code=404, detail="slug not found for user")
     items = await serialize_list(session, list_row.id)
     return _respond(items, request)
