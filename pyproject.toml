@@ -4,7 +4,7 @@ version = "1.5.1"
 description = "Serves Letterboxd lists and watchlists to Radarr as Custom Lists."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Max Lainz" }]
 dependencies = [
     "fastapi ~= 0.115",
