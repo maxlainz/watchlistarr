@@ -65,7 +65,25 @@ async def _seed_two_users(factory: async_sessionmaker[AsyncSession]) -> None:
             name="WL",
             enabled=True,
         )
-        session.add_all([alice_wl, bob_wl])
+        carol = User(letterboxd_username="carol")
+        session.add(carol)
+        await session.flush()
+        carol_wl = ListModel(
+            user_id=carol.id,
+            source_type=SourceType.WATCHLIST,
+            slug="watchlist",
+            name="WL",
+            enabled=False,
+        )
+        alice_disabled = ListModel(
+            user_id=alice.id,
+            source_type=SourceType.LIST,
+            letterboxd_list_id="99",
+            slug="private",
+            name="Private",
+            enabled=False,
+        )
+        session.add_all([alice_wl, bob_wl, carol_wl, alice_disabled])
         await session.flush()
 
         session.add_all(
@@ -239,6 +257,18 @@ def test_404_when_user_does_not_exist(seeded_app: FastAPI) -> None:
 def test_404_when_slug_does_not_exist(seeded_app: FastAPI) -> None:
     with TestClient(seeded_app) as client:
         response = client.get("/alice/inexistente/")
+    assert response.status_code == 404
+
+
+def test_404_when_list_disabled(seeded_app: FastAPI) -> None:
+    with TestClient(seeded_app) as client:
+        response = client.get("/alice/private/")
+    assert response.status_code == 404
+
+
+def test_404_when_watchlist_disabled(seeded_app: FastAPI) -> None:
+    with TestClient(seeded_app) as client:
+        response = client.get("/carol/watchlist/")
     assert response.status_code == 404
 
 

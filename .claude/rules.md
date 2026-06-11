@@ -33,7 +33,8 @@ Cortamos releases con tags `vX.Y.Z` desde `main`. SemVer + Conventional Commits 
 
 ## Idioma
 
-- Documentación, comentarios (cuando existan) y mensajes de commit: español.
+- Documentación interna (`.claude/`, `CLAUDE.md`), comentarios (cuando existan) y mensajes de commit: español.
+- **`README.md` y `CHANGELOG.md`: inglés** — son la cara pública del repo.
 - Código, identificadores, nombres de archivos, branches y variables de entorno: inglés.
 
 ## Lenguaje y tipado

@@ -12,7 +12,9 @@ from watchlistarr.services.letterboxd.client import LetterboxdClient
 
 logger = structlog.get_logger(__name__)
 
-RESERVED_USERNAMES: frozenset[str] = frozenset({"all", "api", "admin", "static", "health", "_"})
+RESERVED_USERNAMES: frozenset[str] = frozenset(
+    {"all", "api", "admin", "static", "health", "_", "lists"}
+)
 
 
 class UserValidationError(Exception):
@@ -36,12 +38,6 @@ async def validate_username(client: LetterboxdClient, username: str) -> str:
             f"{username!r}: cabecera x-letterboxd-type={letterboxd_type!r} (esperado Member)"
         )
     return username
-
-
-def _watchlist_slug_for_user(existing_slugs: set[str]) -> str:
-    if "watchlist" not in existing_slugs:
-        return "watchlist"
-    return "watchlist"
 
 
 async def ensure_watchlist_row(session: AsyncSession, user: User) -> ListModel:

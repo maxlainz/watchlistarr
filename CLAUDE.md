@@ -13,7 +13,7 @@ Docker-based, con UI web mínima para controlar sort order, tamaño de servido a
 - `CLAUDE.md` y `.claude/` **sí** viajan a `main` (no excluir en merge, a diferencia de otros proyectos personales).
 - Al mergear a `main`, el mensaje debe resumir todo lo nuevo desde el último commit en `main`.
 - Actualizar los docs de `.claude/` tras cualquier cambio mayor en arquitectura, comandos o reglas.
-- Idioma de docs y commits: español. Identificadores, nombres de variables, ramas y código en inglés.
+- Idioma de docs internos y commits: español. `README.md` y `CHANGELOG.md` en inglés (cara pública). Identificadores, nombres de variables, ramas y código en inglés.
 - Cortar releases con tag `vX.Y.Z` solo desde `main`. Doble bump (`pyproject.toml` + `src/watchlistarr/__init__.py`) y entrada en `CHANGELOG.md` en el mismo commit `chore(release): vX.Y.Z`. Detalles: [`.claude/versioning.md`](.claude/versioning.md).
 
 ## Contexto (leer según tarea)

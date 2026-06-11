@@ -16,6 +16,9 @@ Principio rector: **la DB es autoritativa**. Lo que servimos a Radarr nunca se c
 | `/{user}/films/` página 1 (backstop) | hot | `FILMS_BACKSTOP_INTERVAL` | 24 h | `watched_films` (rellena gaps del RSS, sin fecha) |
 | `/{user}/lists/` (discovery) | discovery | `DISCOVERY_INTERVAL` | 7 d | `lists` (descubre listas nuevas o desaparecidas) |
 | Rotation tick (interno, sin red) | scheduled | `ROTATION_TICK_INTERVAL` | 1 h | `custom_list_items` de custom lists cuyo `last_rotated_at + rotation_interval ≤ now` |
+| Prune scrape runs (interno, sin red) | scheduled | — (fijo) | 24 h | Borra `scrape_runs` con más de 30 días |
+
+Todos los jobs (onboarding y periódicos) se envuelven con `with_scrape_audit`: cada ejecución deja un `scrape_runs` con `status` y `error`. Un fallo en un sync de lista/watchlist marca además `lists.last_sync_status='error'`.
 
 **Principio**: RSS-driven en caliente, scrapes incrementales frecuentes para detectar adiciones, scrapes completos espaciados para confirmar todo lo demás.
 
@@ -33,17 +36,17 @@ Esto cubre el 95% de casos de parpadeo (errores transitorios, timeouts).
 
 Algoritmo cuando un **scrape completo** detecta `(tmdb_id ∈ list_items[list_id]) AND (tmdb_id ∉ scrape result)`:
 
-1. **Match alternativo por (title, year)**: si el `letterboxd_slug` original ya no aparece pero hay otro slug nuevo en el scrape con mismo `title` + `year`, NO eliminar — Letterboxd renombró el slug. Actualizar `films.letterboxd_slug` y `list_items.position`. Reset `pending_removal_count=0`.
+1. **¿Visto por el owner?**: si `(user_id, tmdb_id) ∈ watched_films` → **eliminar inmediatamente** del `list_items`. Caso legítimo: el RSS ya capturó el visionado y el user lo retiró de la watchlist tras verla.
 
-2. **¿Visto por el owner?**: si `(user_id, tmdb_id) ∈ watched_films` → **eliminar inmediatamente** del `list_items`. Caso legítimo: el RSS ya capturó el visionado y el user lo retiró de la watchlist tras verla.
+2. **Backstop check ad-hoc**: si tras el scrape quedan desapariciones sin explicar (no vistas), un único fetch a `/{user}/films/` página 1 del owner **antes de abrir la transacción de escritura** (no se hace HTTP con el write-lock de SQLite abierto; los slugs se resuelven solo contra `films`). Si el `tmdb_id` aparece allí (el RSS perdió el evento), insertar en `watched_films` con `source='films-page'` y eliminar el item. Si el fetch falla, se degrada al contador del paso siguiente.
 
-3. **Backstop check ad-hoc**: lanzar un fetch a `/{user}/films/` página 1 del owner. Si el `tmdb_id` aparece allí pero no en `watched_films` (el RSS perdió el evento), insertar en `watched_films` con `source='films-page'` y eliminar el item.
+3. **Sin confirmación de visto**: incrementar `list_items.pending_removal_count`. **No** retirar del estado servido todavía.
 
-4. **Sin confirmación de visto**: incrementar `list_items.pending_removal_count`. **No** retirar del estado servido todavía.
+4. Cuando `pending_removal_count >= FLAP_CONFIRM_SCRAPES` (env var, default `3`) en scrapes completos consecutivos, **eliminar**.
 
-5. Cuando `pending_removal_count >= FLAP_CONFIRM_SCRAPES` (env var, default `3`) en scrapes completos consecutivos, **eliminar**.
+5. Si el item reaparece en cualquier scrape posterior antes de llegar al umbral: reset `pending_removal_count=0`.
 
-6. Si el item reaparece en cualquier scrape posterior antes de llegar al umbral: reset `pending_removal_count=0`.
+**Renames y remaps**: un rename de slug (mismo `tmdb_id`) nunca llega al anti-flap — `resolve_films` lo absorbe al matchear la ficha por `tmdb_id` y actualizar `films.letterboxd_slug`. Un remap de TMDB id (Letterboxd re-mapea la ficha a otra entrada TMDB, mismo título/año) no recibe trato especial: el id nuevo entra como item nuevo en el mismo scrape y el viejo se retira vía el contador — el film se sirve sin hueco durante la transición.
 
 ### Asimetría intencionada: adiciones sin protección
 
@@ -58,9 +61,9 @@ Razón: el coste de un falso positivo es asimétrico:
 - Cada fetch del RSS itera los `<item>` con prefix `letterboxd-watch-` y `letterboxd-review-`.
 - Dedup por `<guid>` contra `viewing_logs.letterboxd_guid`.
 - Para cada nuevo guid:
-  1. Insertar fila en `viewing_logs`.
+  1. Insertar fila en `viewing_logs` (con la `watched_date` real del item).
   2. Upsert en `watched_films` por `(user_id, tmdb_id)`:
-     - Si no existe: `first_seen_watched_at = <watched_date del item>`, `last_seen_watched_at = <watched_date>`, `source='rss'`.
+     - Si no existe: `first_seen_watched_at = now()` (momento del poll), `last_seen_watched_at = now()`, `source='rss'`. La fecha real del visionado vive en `viewing_logs.watched_date`; estos timestamps registran cuándo lo vimos nosotros.
      - Si existe: actualizar solo `last_seen_watched_at` (cualquier rewatch lo refresca; `first_seen_watched_at` es inmutable).
 - Items con prefix `letterboxd-list-` se ignoran (las listas se descubren por `/lists/`).
 
@@ -69,7 +72,7 @@ Razón: el coste de un falso positivo es asimétrico:
 Cubre el gap conocido del RSS (ventana limitada a ~20-50 items).
 
 - Frecuencia: `FILMS_BACKSTOP_INTERVAL` (default 24h).
-- También se dispara ad-hoc dentro del paso 3 del anti-flap.
+- También se dispara ad-hoc dentro del paso 2 del anti-flap.
 - Para cada `data-item-slug` extraído de la página 1 de `/films/`:
   - Resolver `tmdb_id` si no está en `films` (fetch de ficha).
   - Upsert en `watched_films` con `source='films-page'`. **No** crea entrada en `viewing_logs` (no tenemos `<guid>` ni fecha).

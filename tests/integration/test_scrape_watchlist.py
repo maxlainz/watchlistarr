@@ -79,6 +79,46 @@ async def test_sync_watchlist_full_creates_list_items(
 
 
 @respx.mock
+async def test_sync_watchlist_full_adhoc_backstop_marks_watched(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    letterboxd_client: LetterboxdClient,
+) -> None:
+    """Paso 3 del anti-flap: un item desaparecido que aparece en /films/ página 1
+    se marca como visto (source=films-page) y se elimina sin pasar por el contador."""
+    from watchlistarr.models.enums import WatchedSource
+    from watchlistarr.models.watched_films import WatchedFilm
+
+    watchlist = await _seed_user_with_watchlist(session, "alice")
+    session.add(Film(tmdb_id=555, letterboxd_slug="mondays-in-the-sun", title="Mondays", year=2002))
+    session.add(ListItem(list_id=watchlist.id, tmdb_id=555, position=0))
+    await session.commit()
+
+    respx.get("https://letterboxd.com/alice/watchlist/").mock(
+        return_value=httpx.Response(200, text=fixture_text("watchlist_p1.html"))
+    )
+    respx.get("https://letterboxd.com/alice/films/").mock(
+        return_value=httpx.Response(200, text=fixture_text("films_p1.html"))
+    )
+    _stub_film_page("3-faces", 447210, year=2018)
+    _stub_film_page("parasite-2019", 496243, year=2019)
+    _stub_film_page("anatomy-of-a-fall", 915935, year=2023)
+
+    await sync_watchlist_full(factory, letterboxd_client, watchlist.id)
+
+    async with factory() as verify:
+        items = (
+            (await verify.execute(select(ListItem).where(ListItem.list_id == watchlist.id)))
+            .scalars()
+            .all()
+        )
+        assert sorted(it.tmdb_id for it in items) == [447210, 496243, 915935]
+        watched = await verify.get(WatchedFilm, (watchlist.user_id, 555))
+        assert watched is not None
+        assert watched.source is WatchedSource.FILMS_PAGE
+
+
+@respx.mock
 async def test_sync_watchlist_incremental_only_adds(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],

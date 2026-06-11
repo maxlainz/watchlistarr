@@ -132,7 +132,15 @@ async def _seed(db_url: str) -> None:
                 name="WL",
                 enabled=True,
             )
-            session.add_all([alice_wl, bob_wl])
+            alice_disabled = ListModel(
+                user_id=alice.id,
+                source_type=SourceType.LIST,
+                letterboxd_list_id="99",
+                slug="private",
+                name="Private",
+                enabled=False,
+            )
+            session.add_all([alice_wl, bob_wl, alice_disabled])
             await session.flush()
             session.add_all(
                 [
@@ -357,6 +365,10 @@ def _exercise(base_url: str) -> None:
 
     r = httpx.get(f"{base_url}/nobody/watchlist/")
     _assert(r.status_code == 404, "404 esperado para user inexistente")
+
+    # Lista disabled: no se sirve a Radarr aunque exista.
+    r = httpx.get(f"{base_url}/alice/private/")
+    _assert(r.status_code == 404, "404 esperado para lista disabled")
 
     # ETag / 304.
     r = httpx.get(f"{base_url}/alice/watchlist/")

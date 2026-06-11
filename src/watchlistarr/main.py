@@ -28,6 +28,7 @@ from watchlistarr.routes.api.radarr import router as radarr_router
 from watchlistarr.routes.api.v1 import router as api_v1_router
 from watchlistarr.scheduler import JobScheduler
 from watchlistarr.services.log_buffer import install_buffer_handler
+from watchlistarr.services.scrape.audit import fail_interrupted_runs
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(level=settings.log_level, fmt=settings.log_format)
     install_buffer_handler()
     init_engine(settings.database_url)
+    await fail_interrupted_runs(get_session_factory())
 
     scheduler = JobScheduler(get_session_factory(), settings)
     await scheduler.sync_jobs()

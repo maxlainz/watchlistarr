@@ -53,7 +53,7 @@ Desde `main` actualizado y con CI verde:
 1. Decidir bump según la tabla de arriba. Calcular `X.Y.Z`.
 2. Editar [`pyproject.toml`](../pyproject.toml) — campo `version = "X.Y.Z"`.
 3. Editar [`src/watchlistarr/__init__.py`](../src/watchlistarr/__init__.py) — `__version__ = "X.Y.Z"`. **Doble bump obligatorio**: si solo cambias uno, `/healthz` y `pyproject` se desincronizan.
-4. Editar [`CHANGELOG.md`](../CHANGELOG.md): mover el bloque `## [Unreleased]` a `## [X.Y.Z] - YYYY-MM-DD` y crear un nuevo `[Unreleased]` vacío arriba.
+4. Editar [`CHANGELOG.md`](../CHANGELOG.md): mover el bloque `## [Unreleased]` a `## [X.Y.Z] - YYYY-MM-DD` y crear un nuevo `[Unreleased]` vacío arriba. Las entradas se escriben **en inglés** (el CHANGELOG es público y el README lo enlaza).
 5. Sincronizar `uv.lock`: `uv lock` — refresca la entrada `[[package]] name = "watchlistarr"` con la nueva `version`. **Obligatorio antes del commit**: el lockfile incluye la versión del propio paquete y el CI corre `uv sync --frozen`, que falla si `pyproject.toml` y `uv.lock` discrepan. Verificar con `grep -A1 'name = "watchlistarr"' uv.lock | grep version` que aparece `X.Y.Z`.
 6. Correr CI local completo (ver [`rules.md` → CI](rules.md#ci-github-actions-githubworkflowsciyml)). Si esto se hace antes del paso 5, `uv run` regenera `uv.lock` por su cuenta y el commit lo agarra; pero el orden explícito evita olvidos.
 7. Commit: `chore(release): vX.Y.Z` (incluye los **4 archivos** editados: `pyproject.toml`, `src/watchlistarr/__init__.py`, `CHANGELOG.md`, `uv.lock`).

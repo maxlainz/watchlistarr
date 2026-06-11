@@ -34,6 +34,44 @@ def _to_resolved(film: Film) -> ResolvedFilm:
     )
 
 
+async def _release_slug(session: AsyncSession, slug: str, tmdb_id: int) -> None:
+    """Si otra fila (distinto tmdb) posee el slug — Letterboxd re-mapeó la ficha
+    a otra entrada TMDB — la re-sluggea a un tombstone para no violar UNIQUE."""
+    holder = (
+        await session.execute(
+            select(Film).where(Film.letterboxd_slug == slug, Film.tmdb_id != tmdb_id)
+        )
+    ).scalar_one_or_none()
+    if holder is None:
+        return
+    holder.letterboxd_slug = f"{slug}--superseded-{holder.tmdb_id}"
+    await session.flush()
+    logger.warning(
+        "film.slug_superseded",
+        slug=slug,
+        old_tmdb_id=holder.tmdb_id,
+        new_tmdb_id=tmdb_id,
+    )
+
+
+async def _release_imdb_id(session: AsyncSession, imdb_id: str, tmdb_id: int) -> None:
+    """Si otra fila posee el imdb_id, se lo limpia — la ficha recién scrapeada
+    es la verdad actual de Letterboxd."""
+    holder = (
+        await session.execute(select(Film).where(Film.imdb_id == imdb_id, Film.tmdb_id != tmdb_id))
+    ).scalar_one_or_none()
+    if holder is None:
+        return
+    holder.imdb_id = None
+    await session.flush()
+    logger.warning(
+        "film.imdb_id_superseded",
+        imdb_id=imdb_id,
+        old_tmdb_id=holder.tmdb_id,
+        new_tmdb_id=tmdb_id,
+    )
+
+
 async def resolve_films(
     factory: async_sessionmaker[AsyncSession],
     client: LetterboxdClient,
@@ -94,6 +132,7 @@ async def resolve_films(
             imdb_id = getattr(data, "imdb_id", None)
             avg_rating = getattr(data, "letterboxd_avg_rating", None)
 
+            await _release_slug(session, slug, tmdb_id)
             existing_by_tmdb = await session.get(Film, tmdb_id)
             if existing_by_tmdb is not None:
                 existing_by_tmdb.letterboxd_slug = slug
@@ -102,11 +141,14 @@ async def resolve_films(
                 if year:
                     existing_by_tmdb.year = year
                 if imdb_id and not existing_by_tmdb.imdb_id:
+                    await _release_imdb_id(session, imdb_id, tmdb_id)
                     existing_by_tmdb.imdb_id = imdb_id
                 if avg_rating is not None:
                     existing_by_tmdb.letterboxd_avg_rating = avg_rating
                 row = existing_by_tmdb
             else:
+                if imdb_id:
+                    await _release_imdb_id(session, imdb_id, tmdb_id)
                 row = Film(
                     tmdb_id=tmdb_id,
                     letterboxd_slug=slug,

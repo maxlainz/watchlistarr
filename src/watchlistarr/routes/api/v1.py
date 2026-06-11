@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Annotated, Any
 
 import structlog
@@ -46,7 +47,7 @@ from watchlistarr.services.scrape.initial_run import UserValidationError, valida
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1")
 
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
 
 # ───────────────────────── helpers ─────────────────────────
@@ -317,6 +318,8 @@ def _job_label(job_id: str, users_by_id: dict[int, str]) -> dict[str, str]:
     """Pretty-print an APScheduler job id for the dashboard 'next scheduled' panel."""
     if job_id == "rotation-tick":
         return {"label": "Custom lists", "detail": "Rotation tick", "kind": "rotation"}
+    if job_id == "prune-scrape-runs":
+        return {"label": "Maintenance", "detail": "Prune old scrape runs", "kind": "sync"}
     parts = job_id.split("-")
     if len(parts) >= 2 and parts[0] == "rss":
         uid = int(parts[-1])
@@ -674,6 +677,13 @@ def _parse_optional_float(value: Any) -> float | None:
         return None
 
 
+def _parse_enum[E: StrEnum](enum_cls: type[E], value: Any, field: str) -> E:
+    try:
+        return enum_cls(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid {field}: {value!r}") from exc
+
+
 async def _save_sources(
     session: AsyncSession,
     custom_list: CustomList,
@@ -796,7 +806,10 @@ async def _validate_no_cycle(
 
 async def _resolve_excluded_user_ids(session: AsyncSession, payload: dict[str, Any]) -> list[int]:
     if "excludedUserIds" in payload:
-        return [int(x) for x in payload["excludedUserIds"]]
+        try:
+            return [int(x) for x in payload["excludedUserIds"]]
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid excludedUserIds") from exc
     usernames = payload.get("excludedWatchers", []) or []
     if not usernames:
         return []
@@ -843,8 +856,8 @@ async def create_custom_list(
     cl = CustomList(
         slug=slug,
         name=name,
-        op=CombinationOp(payload.get("op", "union")),
-        sort_order=SortOrder(payload.get("sortOrder", "letterboxd")),
+        op=_parse_enum(CombinationOp, payload.get("op", "union"), "op"),
+        sort_order=_parse_enum(SortOrder, payload.get("sortOrder", "letterboxd"), "sortOrder"),
         max_items=_parse_optional_int(payload.get("maxItems")),
         min_rating=_parse_optional_float(payload.get("minRating")),
         max_rating=_parse_optional_float(payload.get("maxRating")),
@@ -853,9 +866,9 @@ async def create_custom_list(
         year_last_n=year_last_n,
         added_last_n_days=added_last_n_days,
         rotation_enabled=bool(payload.get("rotationEnabled")),
-        rotation_batch_size=int(payload.get("rotationBatchSize") or 1),
-        rotation_interval=_td_from_hours(payload.get("rotationInterval")),
-        snapshot_interval=_td_from_hours(payload.get("snapshotInterval")),
+        rotation_batch_size=_parse_optional_int(payload.get("rotationBatchSize")) or 1,
+        rotation_interval=_td_from_hours(_parse_optional_int(payload.get("rotationInterval"))),
+        snapshot_interval=_td_from_hours(_parse_optional_int(payload.get("snapshotInterval"))),
     )
     session.add(cl)
     await session.flush()
@@ -890,26 +903,37 @@ async def update_custom_list(
     await _validate_no_cycle(session, cl.id, inc_cls, sub_cls)
     excluded_user_ids = await _resolve_excluded_user_ids(session, payload)
 
+    # Semántica merge: campo ausente → conservar valor actual; null explícito →
+    # limpiar. La UI envía siempre el payload completo, pero un cliente parcial
+    # no debe borrar campos que no mandó.
     cl.name = str(payload.get("name", cl.name)).strip()
-    cl.op = CombinationOp(payload.get("op", cl.op.value))
-    cl.sort_order = SortOrder(payload.get("sortOrder", cl.sort_order.value))
-    cl.max_items = _parse_optional_int(payload.get("maxItems"))
-    cl.min_rating = _parse_optional_float(payload.get("minRating"))
-    cl.max_rating = _parse_optional_float(payload.get("maxRating"))
-    year_last_n = _parse_optional_int(payload.get("yearLastN"))
+    cl.op = _parse_enum(CombinationOp, payload.get("op", cl.op.value), "op")
+    cl.sort_order = _parse_enum(
+        SortOrder, payload.get("sortOrder", cl.sort_order.value), "sortOrder"
+    )
+    cl.max_items = _parse_optional_int(payload.get("maxItems", cl.max_items))
+    cl.min_rating = _parse_optional_float(payload.get("minRating", cl.min_rating))
+    cl.max_rating = _parse_optional_float(payload.get("maxRating", cl.max_rating))
+    year_last_n = _parse_optional_int(payload.get("yearLastN", cl.year_last_n))
     if year_last_n is not None:
         cl.year_last_n = year_last_n
         cl.min_year = None
         cl.max_year = None
     else:
         cl.year_last_n = None
-        cl.min_year = _parse_optional_int(payload.get("minYear"))
-        cl.max_year = _parse_optional_int(payload.get("maxYear"))
-    cl.added_last_n_days = _parse_optional_int(payload.get("addedLastNDays"))
-    cl.rotation_enabled = bool(payload.get("rotationEnabled"))
-    cl.rotation_batch_size = int(payload.get("rotationBatchSize") or 1)
-    cl.rotation_interval = _td_from_hours(payload.get("rotationInterval"))
-    cl.snapshot_interval = _td_from_hours(payload.get("snapshotInterval"))
+        cl.min_year = _parse_optional_int(payload.get("minYear", cl.min_year))
+        cl.max_year = _parse_optional_int(payload.get("maxYear", cl.max_year))
+    cl.added_last_n_days = _parse_optional_int(payload.get("addedLastNDays", cl.added_last_n_days))
+    cl.rotation_enabled = bool(payload.get("rotationEnabled", cl.rotation_enabled))
+    cl.rotation_batch_size = (
+        _parse_optional_int(payload.get("rotationBatchSize", cl.rotation_batch_size)) or 1
+    )
+    cl.rotation_interval = _td_from_hours(
+        _parse_optional_int(payload.get("rotationInterval", _td_hours(cl.rotation_interval)))
+    )
+    cl.snapshot_interval = _td_from_hours(
+        _parse_optional_int(payload.get("snapshotInterval", _td_hours(cl.snapshot_interval)))
+    )
 
     await _save_sources(session, cl, inc_lists, inc_cls, sub_lists, sub_cls)
     await _save_excluded(session, cl, excluded_user_ids)
@@ -950,7 +974,7 @@ async def preview_custom_list(
     by_cl = await _items_by_custom_list(session, list(set(inc_cls + sub_cls)))
     include_sets: list[set[int]] = [by_list.get(lid, set()) for lid in inc_lists]
     include_sets.extend(by_cl.get(cid, set()) for cid in inc_cls)
-    includes = _combine_includes(include_sets, CombinationOp(op_value))
+    includes = _combine_includes(include_sets, _parse_enum(CombinationOp, op_value, "op"))
     subtracts: set[int] = set()
     for lid in sub_lists:
         subtracts |= by_list.get(lid, set())

@@ -55,10 +55,16 @@ async def test_anti_flap_removes_immediately_when_watched(session: AsyncSession)
     assert remaining == []
 
 
-async def test_anti_flap_detects_rename_and_keeps(session: AsyncSession) -> None:
+async def test_anti_flap_tmdb_remap_goes_through_counter(session: AsyncSession) -> None:
+    """Remap de TMDB id (mismo título/año, distinto tmdb): el item viejo pasa
+    por el contador normal, sin tocar slugs (regresión: la rama de rename
+    reasignaba el slug del film nuevo al viejo → IntegrityError por UNIQUE)."""
     lst = await _make_user_list(session)
     await _add_item(session, lst, 200, "old-slug", "Foo", 2020)
-    renamed_film = ResolvedFilm(
+    # En producción resolve_films ya persistió el film nuevo con el slug nuevo.
+    session.add(Film(tmdb_id=999, letterboxd_slug="new-slug", title="Foo", year=2020))
+    await session.flush()
+    remapped_film = ResolvedFilm(
         tmdb_id=999, letterboxd_slug="new-slug", title="Foo", year=2020, imdb_id=None
     )
 
@@ -66,17 +72,60 @@ async def test_anti_flap_detects_rename_and_keeps(session: AsyncSession) -> None
         session,
         list_id=lst.id,
         user_id=lst.user_id,
-        scraped_films=[renamed_film],
+        scraped_films=[remapped_film],
         threshold=3,
     )
-    # Item conservado (mismo tmdb_id 200), slug del film 200 actualizado al nuevo.
-    items = (
-        (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().all()
+    await session.flush()
+    item = (
+        (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().one()
     )
-    assert [i.tmdb_id for i in items] == [200]
+    assert item.tmdb_id == 200
+    assert item.pending_removal_count == 1
     film200 = await session.get(Film, 200)
     assert film200 is not None
-    assert film200.letterboxd_slug == "new-slug"
+    assert film200.letterboxd_slug == "old-slug"
+
+
+async def test_anti_flap_films_page_backstop_marks_watched_and_removes(
+    session: AsyncSession,
+) -> None:
+    lst = await _make_user_list(session)
+    await _add_item(session, lst, 300, "seen", "Seen", 2018)
+
+    await reconcile_full_scrape(
+        session,
+        list_id=lst.id,
+        user_id=lst.user_id,
+        scraped_films=[],
+        threshold=3,
+        films_page_tmdb_ids={300},
+    )
+    remaining = (
+        (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().all()
+    )
+    assert remaining == []
+    watched = await session.get(WatchedFilm, (lst.user_id, 300))
+    assert watched is not None
+    assert watched.source is WatchedSource.FILMS_PAGE
+
+
+async def test_anti_flap_films_page_miss_increments_counter(session: AsyncSession) -> None:
+    lst = await _make_user_list(session)
+    await _add_item(session, lst, 400, "missing", "Missing", 2019)
+
+    await reconcile_full_scrape(
+        session,
+        list_id=lst.id,
+        user_id=lst.user_id,
+        scraped_films=[],
+        threshold=3,
+        films_page_tmdb_ids={111},
+    )
+    item = (
+        (await session.execute(select(ListItem).where(ListItem.list_id == lst.id))).scalars().one()
+    )
+    assert item.pending_removal_count == 1
+    assert await session.get(WatchedFilm, (lst.user_id, 400)) is None
 
 
 async def test_anti_flap_increments_then_removes_at_threshold(session: AsyncSession) -> None:

@@ -133,6 +133,32 @@ async def test_recalculate_drops_invalid_and_refills(session: AsyncSession) -> N
     assert len(tmdb_ids) == 3
 
 
+async def test_recalculate_uncapped_adds_new_candidates(session: AsyncSession) -> None:
+    """Regresión: sin max_items, recalculate solo eliminaba y nunca añadía
+    films nuevos que ahora califican."""
+    _, parent = await _seed_user_list(session, [1, 2, 3, 4])
+    cl = await _make_custom_list(session, parent, slug="uncapped", max_items=None)
+    session.add_all(
+        [
+            CustomListItem(custom_list_id=cl.id, tmdb_id=1, position=0),
+            CustomListItem(custom_list_id=cl.id, tmdb_id=2, position=1),
+        ]
+    )
+    await session.flush()
+
+    await recalculate(session, cl)
+    items = (
+        (
+            await session.execute(
+                select(CustomListItem).where(CustomListItem.custom_list_id == cl.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(it.tmdb_id for it in items) == [1, 2, 3, 4]
+
+
 async def test_recalculate_truncates_when_max_items_lowered(session: AsyncSession) -> None:
     _, parent = await _seed_user_list(session, [1, 2, 3, 4, 5])
     cl = await _make_custom_list(session, parent, slug="shrink", max_items=5)

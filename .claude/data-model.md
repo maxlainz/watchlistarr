@@ -8,8 +8,8 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 
 - **`tmdb_id`** (entero) es la clave canónica interna en toda la app. Es estable entre renombrados de slug en Letterboxd.
 - **`imdb_id`** (string `tt…`) es **necesario para Radarr**: su parser de Custom List (`StevenLuParser.cs`) solo lee `title` y `imdb_id` y descarta cualquier item sin `imdb_id`. Se extrae del HTML de la ficha de Letterboxd (link "More at IMDb") cuando resolvemos un slug y se guarda en `films.imdb_id`. Ver [`radarr-custom-list.md`](radarr-custom-list.md#por-qué-tmdb_id-no-basta).
-- El **slug de Letterboxd** (`/film/{slug}/`) es secundario. Se usa para construir URLs de scrape y como caché en `films.letterboxd_slug`. Puede cambiar entre scrapes (raro pero pasa) — cuando ocurre, persistimos el slug nuevo manteniendo el mismo `tmdb_id`.
-- **Variables redundantes** para validar coincidencia en caso de cambio de slug: `title` + `year`. Si en un scrape desaparece un slug pero aparece otro con el mismo (`title`, `year`), asumimos rename y no eliminamos del listado (ver anti-flap en sync-strategy).
+- El **slug de Letterboxd** (`/film/{slug}/`) es secundario. Se usa para construir URLs de scrape y como caché en `films.letterboxd_slug`. Puede cambiar entre scrapes (raro pero pasa) — `resolve_films` lo absorbe al matchear la ficha por `tmdb_id` y persistir el slug nuevo.
+- Un **remap de TMDB id** (Letterboxd re-mapea la ficha a otra entrada TMDB, mismo `title` + `year`) no recibe trato especial: el id nuevo entra como item nuevo en el mismo scrape y el viejo se retira vía el contador anti-flap (ver sync-strategy).
 
 ## Entidades
 
@@ -25,7 +25,7 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 | `custom_list_items` | `(custom_list_id, tmdb_id)` (PK), `served_since`, `position` | Pelis actualmente servidas. FIFO por `served_since` durante la rotación |
 | `watched_films` | `(user_id, tmdb_id)` (PK), `first_seen_watched_at`, `last_seen_watched_at`, `source` (`rss` / `films-page`) | Una peli vista por un user, agregada entre todos los visionados |
 | `viewing_logs` | `letterboxd_guid` (PK), `user_id` (FK), `tmdb_id`, `watched_date`, `rating`, `member_like`, `recorded_at` | Eventos crudos del RSS, dedup por `<guid>` |
-| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit + soporte para anti-flap (necesitamos historial de scrapes consecutivos). **No expuesto en UI** — los logs reemplazaron este feed |
+| `scrape_runs` | `id` (PK), `source` (`list` / `watchlist` / `films` / `rss` / `discovery` / `rotation`), `target_id` (FK polimórfico), `started_at`, `ended_at`, `status`, `error` | Audit de todo scrape (onboarding y periódicos). Alimenta el dashboard (`recentActivity`, `recentErrors`) y los spinners de la UI (`status='running'`). Al arrancar, los runs `running` huérfanos se marcan `error` ("interrupted by restart"). Job diario `prune-scrape-runs` borra runs de más de 30 días |
 
 > No hay tabla global de settings. Los **defaults** de todos los intervalos viven en env vars (inmutables tras arranque); los **overrides** viven en columnas nullable de `users` y `lists`. El ritmo del rotation worker (`ROTATION_TICK_INTERVAL`) y `FLAP_CONFIRM_SCRAPES` también vienen de env, este último con override por lista.
 
@@ -100,7 +100,7 @@ Hay que evitar choques.
 
 - Cuando un scrape de lista encuentra un `data-item-slug` que no existe en `films`, lanza un fetch a `https://letterboxd.com/film/{slug}/`, parsea `body[data-tmdb-id]` y el link `imdb.com/title/tt…` con regex, y upsert en `films`.
 - Si el slug ya existe **pero tiene `imdb_id IS NULL`**, `resolve_film` re-resuelve el fetch para enriquecer el campo (backfill lazy). Cuando `imdb_id` ya está, devuelve la fila cacheada sin tocar HTTP.
-- Si el slug ya existe y `last_resolved_at` es antiguo (TBD: ¿1 semana?), se puede re-resolver para detectar renombrados, pero no es prioritario — los renombrados se detectan también vía cruz `(title, year)` durante el anti-flap.
+- Si el slug ya existe y `last_resolved_at` es antiguo (TBD: ¿1 semana?), se puede re-resolver para detectar renombrados, pero no es prioritario — el rename de slug se absorbe igualmente en la resolución (match por `tmdb_id`).
 - TV shows (`tmdb_type != 'movie'`) **no se persisten**. Se descartan en el scrape.
 
 ## Cross-references con otros docs

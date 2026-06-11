@@ -2,11 +2,39 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 from datetime import UTC, datetime
+from typing import Any, cast
 
+import structlog
+from sqlalchemy import CursorResult, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from watchlistarr.models.enums import ScrapeSource, ScrapeStatus
 from watchlistarr.models.scrape_runs import ScrapeRun
+
+logger = structlog.get_logger(__name__)
+
+
+async def fail_interrupted_runs(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """Marca como error los runs que quedaron en RUNNING tras un crash/restart.
+
+    Sin esto, la UI muestra spinners perpetuos y el toggle de lista nunca
+    relanza el sync inmediato (cree que hay un run en vuelo)."""
+    async with session_factory() as session:
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(
+                update(ScrapeRun)
+                .where(ScrapeRun.status == ScrapeStatus.RUNNING)
+                .values(
+                    status=ScrapeStatus.ERROR,
+                    ended_at=datetime.now(UTC),
+                    error="interrupted by restart",
+                )
+            ),
+        )
+        await session.commit()
+    if result.rowcount:
+        logger.warning("scrape_runs.interrupted_cleaned", count=result.rowcount)
 
 
 async def with_scrape_audit[T](
