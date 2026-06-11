@@ -33,17 +33,17 @@ Esto cubre el 95% de casos de parpadeo (errores transitorios, timeouts).
 
 Algoritmo cuando un **scrape completo** detecta `(tmdb_id ∈ list_items[list_id]) AND (tmdb_id ∉ scrape result)`:
 
-1. **Match alternativo por (title, year)**: si el `letterboxd_slug` original ya no aparece pero hay otro slug nuevo en el scrape con mismo `title` + `year`, NO eliminar — Letterboxd renombró el slug. Actualizar `films.letterboxd_slug` y `list_items.position`. Reset `pending_removal_count=0`.
+1. **¿Visto por el owner?**: si `(user_id, tmdb_id) ∈ watched_films` → **eliminar inmediatamente** del `list_items`. Caso legítimo: el RSS ya capturó el visionado y el user lo retiró de la watchlist tras verla.
 
-2. **¿Visto por el owner?**: si `(user_id, tmdb_id) ∈ watched_films` → **eliminar inmediatamente** del `list_items`. Caso legítimo: el RSS ya capturó el visionado y el user lo retiró de la watchlist tras verla.
+2. **Backstop check ad-hoc**: si tras el scrape quedan desapariciones sin explicar (no vistas), un único fetch a `/{user}/films/` página 1 del owner **antes de abrir la transacción de escritura** (no se hace HTTP con el write-lock de SQLite abierto; los slugs se resuelven solo contra `films`). Si el `tmdb_id` aparece allí (el RSS perdió el evento), insertar en `watched_films` con `source='films-page'` y eliminar el item. Si el fetch falla, se degrada al contador del paso siguiente.
 
-3. **Backstop check ad-hoc**: lanzar un fetch a `/{user}/films/` página 1 del owner. Si el `tmdb_id` aparece allí pero no en `watched_films` (el RSS perdió el evento), insertar en `watched_films` con `source='films-page'` y eliminar el item.
+3. **Sin confirmación de visto**: incrementar `list_items.pending_removal_count`. **No** retirar del estado servido todavía.
 
-4. **Sin confirmación de visto**: incrementar `list_items.pending_removal_count`. **No** retirar del estado servido todavía.
+4. Cuando `pending_removal_count >= FLAP_CONFIRM_SCRAPES` (env var, default `3`) en scrapes completos consecutivos, **eliminar**.
 
-5. Cuando `pending_removal_count >= FLAP_CONFIRM_SCRAPES` (env var, default `3`) en scrapes completos consecutivos, **eliminar**.
+5. Si el item reaparece en cualquier scrape posterior antes de llegar al umbral: reset `pending_removal_count=0`.
 
-6. Si el item reaparece en cualquier scrape posterior antes de llegar al umbral: reset `pending_removal_count=0`.
+**Renames y remaps**: un rename de slug (mismo `tmdb_id`) nunca llega al anti-flap — `resolve_films` lo absorbe al matchear la ficha por `tmdb_id` y actualizar `films.letterboxd_slug`. Un remap de TMDB id (Letterboxd re-mapea la ficha a otra entrada TMDB, mismo título/año) no recibe trato especial: el id nuevo entra como item nuevo en el mismo scrape y el viejo se retira vía el contador — el film se sirve sin hueco durante la transición.
 
 ### Asimetría intencionada: adiciones sin protección
 
@@ -69,7 +69,7 @@ Razón: el coste de un falso positivo es asimétrico:
 Cubre el gap conocido del RSS (ventana limitada a ~20-50 items).
 
 - Frecuencia: `FILMS_BACKSTOP_INTERVAL` (default 24h).
-- También se dispara ad-hoc dentro del paso 3 del anti-flap.
+- También se dispara ad-hoc dentro del paso 2 del anti-flap.
 - Para cada `data-item-slug` extraído de la página 1 de `/films/`:
   - Resolver `tmdb_id` si no está en `films` (fetch de ficha).
   - Upsert en `watched_films` con `source='films-page'`. **No** crea entrada en `viewing_logs` (no tenemos `<guid>` ni fecha).

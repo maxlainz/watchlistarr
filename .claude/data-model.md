@@ -8,8 +8,8 @@ Doc hermano: [`sync-strategy.md`](sync-strategy.md) describe cómo se pueblan es
 
 - **`tmdb_id`** (entero) es la clave canónica interna en toda la app. Es estable entre renombrados de slug en Letterboxd.
 - **`imdb_id`** (string `tt…`) es **necesario para Radarr**: su parser de Custom List (`StevenLuParser.cs`) solo lee `title` y `imdb_id` y descarta cualquier item sin `imdb_id`. Se extrae del HTML de la ficha de Letterboxd (link "More at IMDb") cuando resolvemos un slug y se guarda en `films.imdb_id`. Ver [`radarr-custom-list.md`](radarr-custom-list.md#por-qué-tmdb_id-no-basta).
-- El **slug de Letterboxd** (`/film/{slug}/`) es secundario. Se usa para construir URLs de scrape y como caché en `films.letterboxd_slug`. Puede cambiar entre scrapes (raro pero pasa) — cuando ocurre, persistimos el slug nuevo manteniendo el mismo `tmdb_id`.
-- **Variables redundantes** para validar coincidencia en caso de cambio de slug: `title` + `year`. Si en un scrape desaparece un slug pero aparece otro con el mismo (`title`, `year`), asumimos rename y no eliminamos del listado (ver anti-flap en sync-strategy).
+- El **slug de Letterboxd** (`/film/{slug}/`) es secundario. Se usa para construir URLs de scrape y como caché en `films.letterboxd_slug`. Puede cambiar entre scrapes (raro pero pasa) — `resolve_films` lo absorbe al matchear la ficha por `tmdb_id` y persistir el slug nuevo.
+- Un **remap de TMDB id** (Letterboxd re-mapea la ficha a otra entrada TMDB, mismo `title` + `year`) no recibe trato especial: el id nuevo entra como item nuevo en el mismo scrape y el viejo se retira vía el contador anti-flap (ver sync-strategy).
 
 ## Entidades
 
@@ -100,7 +100,7 @@ Hay que evitar choques.
 
 - Cuando un scrape de lista encuentra un `data-item-slug` que no existe en `films`, lanza un fetch a `https://letterboxd.com/film/{slug}/`, parsea `body[data-tmdb-id]` y el link `imdb.com/title/tt…` con regex, y upsert en `films`.
 - Si el slug ya existe **pero tiene `imdb_id IS NULL`**, `resolve_film` re-resuelve el fetch para enriquecer el campo (backfill lazy). Cuando `imdb_id` ya está, devuelve la fila cacheada sin tocar HTTP.
-- Si el slug ya existe y `last_resolved_at` es antiguo (TBD: ¿1 semana?), se puede re-resolver para detectar renombrados, pero no es prioritario — los renombrados se detectan también vía cruz `(title, year)` durante el anti-flap.
+- Si el slug ya existe y `last_resolved_at` es antiguo (TBD: ¿1 semana?), se puede re-resolver para detectar renombrados, pero no es prioritario — el rename de slug se absorbe igualmente en la resolución (match por `tmdb_id`).
 - TV shows (`tmdb_type != 'movie'`) **no se persisten**. Se descartan en el scrape.
 
 ## Cross-references con otros docs

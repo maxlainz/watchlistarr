@@ -13,7 +13,7 @@ from watchlistarr.models.users import User
 from watchlistarr.services import intervals
 from watchlistarr.services.letterboxd.client import LetterboxdClient
 from watchlistarr.services.letterboxd.lists import parse_list_items, parse_total_pages
-from watchlistarr.services.scrape.anti_flap import reconcile_full_scrape
+from watchlistarr.services.scrape.anti_flap import adhoc_films_backstop, reconcile_full_scrape
 from watchlistarr.services.scrape.film_resolver import ResolvedFilm, resolve_films
 
 logger = structlog.get_logger(__name__)
@@ -141,6 +141,14 @@ async def sync_watchlist_full(
         total_slugs=len(all_slugs),
     )
     resolved = await resolve_films(factory, client, all_slugs)
+    films_page_tmdb_ids = await adhoc_films_backstop(
+        factory,
+        client,
+        username=username,
+        list_id=list_id,
+        user_id=user_id,
+        scraped_tmdb_ids={f.tmdb_id for f in resolved.values()},
+    )
 
     async with factory() as session:
         watchlist = await session.get(ListModel, list_id)
@@ -153,6 +161,7 @@ async def sync_watchlist_full(
             user_id=user_id,
             scraped_films=resolved.values(),
             threshold=intervals.list_flap_threshold(watchlist, get_settings()),
+            films_page_tmdb_ids=films_page_tmdb_ids,
         )
         watchlist.last_synced_at = utcnow()
         watchlist.last_sync_status = SyncStatus.SUCCESS
