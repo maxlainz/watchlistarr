@@ -32,11 +32,11 @@ El repo ya usa prefijos en los mensajes (`feat:`, `fix:`, `docs:`, `refactor:`, 
 - **Anotados, no lightweight**: `git tag -a v0.2.0 -m "v0.2.0"`.
 - Solo desde `main`, después de mergear `dev`. Nunca taggear desde `dev`.
 
-## Tags en Docker Hub
+## Tags en Docker Hub y GHCR
 
-Los produce `docker/metadata-action` en [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) automáticamente.
+Los produce `docker/metadata-action` en [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) automáticamente. Cada build publica los mismos tags en **dos registries**: `maxlainz/watchlistarr` (Docker Hub) y `ghcr.io/maxlainz/watchlistarr` (GitHub Container Registry, autenticado con el `GITHUB_TOKEN` del workflow — no necesita secrets propios).
 
-| Origen | Tags publicados en `maxlainz/watchlistarr` |
+| Origen | Tags publicados en ambos registries |
 |---|---|
 | Push a `main` (commit normal) | `latest`, `sha-<short>` |
 | Push de tag `v0.2.0` | `0.2.0`, `0.2`, `sha-<short>` |
@@ -66,7 +66,7 @@ Desde `main` actualizado y con CI verde:
 ## Verificación tras el push
 
 - En **Actions**, los jobs `qa` y `docker` deben correr en el contexto del tag y completar.
-- En **Docker Hub** (`https://hub.docker.com/r/maxlainz/watchlistarr/tags`), aparecen `X.Y.Z`, `X.Y`, `sha-<short>`. `latest` apunta al mismo digest si el tag se cortó desde `HEAD` de `main`.
+- En **Docker Hub** (`https://hub.docker.com/r/maxlainz/watchlistarr/tags`), aparecen `X.Y.Z`, `X.Y`, `sha-<short>`. `latest` apunta al mismo digest si el tag se cortó desde `HEAD` de `main`. Mismos tags en **GHCR** (`https://github.com/maxlainz/watchlistarr/pkgs/container/watchlistarr`).
 - `docker pull maxlainz/watchlistarr:X.Y.Z` y luego:
   ```
   docker run --rm maxlainz/watchlistarr:X.Y.Z \

@@ -55,7 +55,7 @@ docker run -d \
 
 Open `http://localhost:8080` in your browser. That's it — everything else is set up from the web UI.
 
-> `:latest` always tracks the newest release. To pin a version, replace it with e.g. `:1.5.1` — available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags).
+> `:latest` always tracks the newest release. To pin a version, replace it with e.g. `:1.5.1` — available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags). The same image is also published to GitHub Container Registry: `ghcr.io/maxlainz/watchlistarr`.
 
 ## First steps
 
