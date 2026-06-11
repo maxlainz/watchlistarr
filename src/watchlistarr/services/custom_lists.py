@@ -396,8 +396,6 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
         custom_list.last_snapshot_at = utcnow()
         await session.flush()
 
-    if custom_list.max_items is None:
-        return
     remaining_ids = [
         row[0]
         for row in (
@@ -409,27 +407,31 @@ async def recalculate(session: AsyncSession, custom_list: CustomList) -> None:
         ).all()
     ]
     remaining_count = len(remaining_ids)
-    if remaining_count > custom_list.max_items:
-        keep = set(
-            await _choose_from_pool(session, custom_list, remaining_ids, custom_list.max_items)
-        )
-        drop_ids = [t for t in remaining_ids if t not in keep]
-        await session.execute(
-            delete(CustomListItem).where(
-                CustomListItem.custom_list_id == custom_list.id,
-                CustomListItem.tmdb_id.in_(drop_ids),
+    if custom_list.max_items is not None:
+        if remaining_count > custom_list.max_items:
+            keep = set(
+                await _choose_from_pool(session, custom_list, remaining_ids, custom_list.max_items)
             )
-        )
-        await session.flush()
-        await _reindex_positions(session, custom_list.id)
-        await session.flush()
-        return
-    if remaining_count == custom_list.max_items:
-        await _reindex_positions(session, custom_list.id)
-        await session.flush()
-        return
+            drop_ids = [t for t in remaining_ids if t not in keep]
+            await session.execute(
+                delete(CustomListItem).where(
+                    CustomListItem.custom_list_id == custom_list.id,
+                    CustomListItem.tmdb_id.in_(drop_ids),
+                )
+            )
+            await session.flush()
+            await _reindex_positions(session, custom_list.id)
+            await session.flush()
+            return
+        if remaining_count == custom_list.max_items:
+            await _reindex_positions(session, custom_list.id)
+            await session.flush()
+            return
     pool = await eligible_pool(session, custom_list)
-    need = custom_list.max_items - remaining_count
+    # Sin tope, el recálculo sirve todo el pool elegible (igual que init_items).
+    need = (
+        custom_list.max_items - remaining_count if custom_list.max_items is not None else len(pool)
+    )
     chosen = await _choose_from_pool(session, custom_list, pool, need)
     now = utcnow()
     for pos, tmdb_id in enumerate(chosen, start=remaining_count):

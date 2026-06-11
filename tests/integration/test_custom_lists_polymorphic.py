@@ -280,3 +280,103 @@ async def test_api_rejects_cycle_via_two_hops(
         )
         assert cycle.status_code == 400
         assert "cycle" in cycle.json()["detail"]
+
+
+async def test_api_put_partial_payload_preserves_fields(
+    app, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Regresión: el PUT borraba silenciosamente los campos no enviados
+    (maxItems, filtros, rotación, snapshot)."""
+    async with factory() as session:
+        _, lst = await _seed_user_list(session, "alice", [1, 2, 3])
+        list_id = lst.id
+        await session.commit()
+
+    with TestClient(app) as client:
+        create = client.post(
+            "/api/v1/custom-lists",
+            json={
+                "slug": "partial",
+                "name": "Partial",
+                "op": "union",
+                "sortOrder": "rating_desc",
+                "maxItems": 2,
+                "minRating": 3.5,
+                "yearLastN": 5,
+                "rotationEnabled": True,
+                "rotationInterval": 168,
+                "rotationBatchSize": 2,
+                "sources": [{"listId": list_id, "role": "include"}],
+            },
+        )
+        assert create.status_code == 201, create.text
+
+        update = client.put(
+            "/api/v1/custom-lists/partial",
+            json={
+                "name": "Partial renamed",
+                "sources": [{"listId": list_id, "role": "include"}],
+            },
+        )
+        assert update.status_code == 200, update.text
+        body = update.json()
+        assert body["name"] == "Partial renamed"
+        assert body["sortOrder"] == "rating_desc"
+        assert body["maxItems"] == 2
+        assert body["minRating"] == 3.5
+        assert body["yearLastN"] == 5
+        assert body["rotationEnabled"] is True
+        assert body["rotationInterval"] == 168
+        assert body["rotationBatchSize"] == 2
+
+        # null explícito sí limpia.
+        clear = client.put(
+            "/api/v1/custom-lists/partial",
+            json={
+                "maxItems": None,
+                "sources": [{"listId": list_id, "role": "include"}],
+            },
+        )
+        assert clear.status_code == 200, clear.text
+        assert clear.json()["maxItems"] is None
+        assert clear.json()["minRating"] == 3.5
+
+
+async def test_api_invalid_inputs_return_400(
+    app, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with factory() as session:
+        _, lst = await _seed_user_list(session, "alice", [1, 2, 3])
+        list_id = lst.id
+        await session.commit()
+
+    with TestClient(app) as client:
+        sources = [{"listId": list_id, "role": "include"}]
+        bad_op = client.post(
+            "/api/v1/custom-lists",
+            json={"slug": "x1", "name": "X", "op": "nope", "sources": sources},
+        )
+        assert bad_op.status_code == 400
+
+        bad_sort = client.post(
+            "/api/v1/custom-lists",
+            json={"slug": "x2", "name": "X", "sortOrder": "nope", "sources": sources},
+        )
+        assert bad_sort.status_code == 400
+
+        bad_excluded = client.post(
+            "/api/v1/custom-lists",
+            json={
+                "slug": "x3",
+                "name": "X",
+                "sources": sources,
+                "excludedUserIds": ["abc"],
+            },
+        )
+        assert bad_excluded.status_code == 400
+
+        bad_slug = client.post(
+            "/api/v1/custom-lists",
+            json={"slug": "trailing-", "name": "X", "sources": sources},
+        )
+        assert bad_slug.status_code == 400
