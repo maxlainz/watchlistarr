@@ -6,6 +6,11 @@ and the project uses [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- License changed from MIT to GPL-3.0-or-later.
+- README: license badge, "How it works" overview and Contributing/License
+  sections.
+
 ## [1.5.1] - 2026-06-11
 
 ### Fixed

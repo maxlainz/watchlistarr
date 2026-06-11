@@ -7,6 +7,7 @@ watchlistarr watches public Letterboxd accounts and serves them to Radarr as Cus
 ![Docker version](https://img.shields.io/docker/v/maxlainz/watchlistarr?label=docker&sort=semver)
 ![Docker pulls](https://img.shields.io/docker/pulls/maxlainz/watchlistarr)
 ![CI](https://img.shields.io/github/actions/workflow/status/maxlainz/watchlistarr/ci.yml?branch=main)
+![License](https://img.shields.io/github/license/maxlainz/watchlistarr)
 
 ---
 
@@ -18,6 +19,14 @@ watchlistarr watches public Letterboxd accounts and serves them to Radarr as Cus
 - **Safe by default** — movies aren't dropped after a single hiccup; removal only happens after several confirmations.
 - **Live web UI** — add users, toggle lists, build custom lists and watch the activity log in real time. No config files to edit after install.
 - **One container, multi-arch** — `linux/amd64` and `linux/arm64`. Runs wherever Docker runs.
+
+## How it works
+
+```
+Letterboxd (public pages & RSS)  →  watchlistarr (scraper + database + web UI)  →  Radarr (Import List)
+```
+
+watchlistarr periodically reads the public Letterboxd pages of the users you add and keeps everything in its own local database. Radarr pulls from that database — never from Letterboxd directly — so Radarr syncs are instant no matter how big the lists are, and Letterboxd only sees a slow, polite trickle of requests. No Letterboxd login or API key is involved; only public profiles work.
 
 ## What you need
 
@@ -158,6 +167,16 @@ uv run uvicorn watchlistarr.main:app --reload --port 8080
 
 Internal docs (architecture, scraping rules, data model, release process) live in [CLAUDE.md](CLAUDE.md) and [`.claude/`](.claude/).
 
+## Contributing
+
+Bug reports and feature requests are welcome — [open an issue](https://github.com/maxlainz/watchlistarr/issues). For code changes, open a PR against the `dev` branch and make sure the five CI checks pass (`ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`).
+
 ## Credits
 
 Inspired by [letterboxd-list-radarr](https://github.com/screeny05/letterboxd-list-radarr), which stopped working after Letterboxd's API changes.
+
+watchlistarr is not affiliated with or endorsed by Letterboxd or Radarr.
+
+## License
+
+[GPL-3.0-or-later](LICENSE).
