@@ -2,7 +2,7 @@
 
 Sync your Letterboxd watchlists and lists straight into Radarr, with a friendly web UI.
 
-watchlistarr watches public Letterboxd accounts and serves them to Radarr as Custom Lists. Add a username, pick which lists to sync, paste the URL into Radarr. No API keys, no scripting.
+Add a Letterboxd username, pick the lists you want, paste a URL into Radarr — done. No API keys, no config files, no scripting. Works with any public Letterboxd profile.
 
 ![Docker version](https://img.shields.io/docker/v/maxlainz/watchlistarr?label=docker&sort=semver)
 ![Docker pulls](https://img.shields.io/docker/pulls/maxlainz/watchlistarr)
@@ -13,34 +13,18 @@ watchlistarr watches public Letterboxd accounts and serves them to Radarr as Cus
 
 ## Features
 
-- **Multi-user** — track lists from as many Letterboxd accounts as you want.
-- **Smart custom lists** — combine watchlists with union or intersection, exclude movies others have already watched, and filter by rating or year.
-- **Time-based rotation** — pick "5 movies a week" and watchlistarr cycles through your big lists at a steady pace, so Radarr doesn't grab everything at once.
-- **Safe by default** — movies aren't dropped after a single hiccup; removal only happens after several confirmations.
-- **Live web UI** — add users, toggle lists, build custom lists and watch the activity log in real time. No config files to edit after install.
-- **One container, multi-arch** — `linux/amd64` and `linux/arm64`. Runs wherever Docker runs.
+- **Multi-user** — follow as many Letterboxd accounts as you want.
+- **Smart custom lists** — merge several lists into one, exclude movies somebody has already watched, filter by rating or release year.
+- **Steady rotation** — pick "5 movies a week" and big watchlists trickle into Radarr at your pace instead of all at once.
+- **Safe removals** — a movie must disappear from a list several times in a row before it's dropped, so your Radarr library doesn't flicker.
+- **Everything in the browser** — add users, toggle lists, build custom lists and watch live activity. Changes apply instantly, no restarts.
+- **One small container** — runs anywhere Docker runs, on `amd64` and `arm64`.
 
-## How it works
+## Installation
 
-```
-Letterboxd (public pages & RSS)  →  watchlistarr (scraper + database + web UI)  →  Radarr (Import List)
-```
+You need Docker (with Compose) and a Radarr instance reachable on your network.
 
-watchlistarr periodically reads the public Letterboxd pages of the users you add and keeps everything in its own local database. Radarr pulls from that database — never from Letterboxd directly — so Radarr syncs are instant no matter how big the lists are, and Letterboxd only sees a slow, polite trickle of requests. No Letterboxd login or API key is involved; only public profiles work.
-
-## What you need
-
-- Docker and Docker Compose v2
-- A Radarr instance reachable on the network
-- One or more public Letterboxd usernames
-
-## Quick start
-
-Two ways to install — pick the one that matches your setup.
-
-### Option 1: Add to your `docker-compose.yml` (recommended)
-
-Best if you already run an *-arr stack with Docker Compose. Drop this service into your existing `docker-compose.yml` (or create a new file with just this):
+Add this to your `docker-compose.yml` (or create a new one with just this):
 
 ```yaml
 services:
@@ -54,41 +38,43 @@ services:
       - ./watchlistarr/data:/data
 ```
 
-Then bring it up:
-
 ```bash
-docker compose up -d watchlistarr
-```
-
-> Want to change defaults (port, log level, sync intervals)? Add an `environment:` block to the service, or point `env_file:` at your own `.env`. See [`.env.example`](https://github.com/maxlainz/watchlistarr/blob/main/.env.example) for the full list of options — defaults are sensible, so most setups don't need any of them.
-
-### Option 2: Clone the repo
-
-```bash
-git clone https://github.com/maxlainz/watchlistarr.git
-cd watchlistarr
-cp .env.example .env
 docker compose up -d
 ```
 
-Either way, open `http://localhost:8080` in your browser. That's it — there's nothing else to configure to get going.
+Prefer plain `docker run`?
 
-> **Versions**: `:latest` always tracks the newest build. To pin a specific version (recommended for production), check [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags) and replace `:latest` with e.g. `:1.0.0`.
+```bash
+docker run -d \
+  --name watchlistarr \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v ./watchlistarr/data:/data \
+  maxlainz/watchlistarr:latest
+```
 
-## First-time setup
+Open `http://localhost:8080` in your browser. That's it — everything else is set up from the web UI.
 
-Once the UI loads:
+> `:latest` always tracks the newest release. To pin a version, replace it with e.g. `:1.5.1` — available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags).
 
-1. Go to **Users → Add user** and type a Letterboxd username. watchlistarr checks it exists and discovers their public lists in the background.
-2. Open that user. Toggle on the lists you want to sync.
-3. *(Optional)* Go to **Custom Lists → New custom list** to combine several lists into one URL — union, intersection, filters, rotation.
-4. Each active list and custom list shows a **Copy URL** button. That URL is what you paste into Radarr.
+## First steps
 
-> **Heads up — the first sync takes a while.** watchlistarr scrapes Letterboxd politely (one request at a time, with delays to avoid rate limits), so a freshly enabled list can take from a few seconds for a small list to tens of minutes for a watchlist with thousands of films. Once the first sync finishes, subsequent updates are quick because only changes are fetched. You can watch progress live in the **Activity** tab.
+1. In the web UI, go to **Users → Add user** and type a Letterboxd username. Their public lists are discovered automatically.
+2. Open the user and toggle on the lists you want to sync.
+3. *(Optional)* Go to **Custom Lists** to combine several lists into one, with filters and rotation.
+4. Every list has a **Copy URL** button. That URL is what you give to Radarr.
+
+> The first sync of a big list can take a while — watchlistarr fetches slowly on purpose to be gentle with Letterboxd. You can watch progress live in the **Activity** tab. After the first sync, updates are quick.
 
 ## Connecting Radarr
 
-watchlistarr exposes three kinds of URLs you can hand to Radarr:
+1. In Radarr, go to **Settings → Import Lists → Add (+)** and pick **Custom Lists**.
+2. **List URL**: paste the URL you copied from watchlistarr.
+3. **Enable Automatic Add**: `Yes`.
+4. Pick your **Quality Profile**, **Root Folder** and **Minimum Availability**.
+5. Click **Test** → green → **Save**.
+
+These are the URLs watchlistarr serves:
 
 | What you want | URL |
 |---|---|
@@ -96,35 +82,14 @@ watchlistarr exposes three kinds of URLs you can hand to Radarr:
 | A specific list from a user | `http://<host>:8080/<username>/<list-slug>/` |
 | A custom list you built | `http://<host>:8080/lists/<custom-slug>/` |
 
-In Radarr:
-
-1. **Settings → Import Lists → Add (+)** → pick either **Custom Lists** or **StevenLu Custom**. Both providers work against the same URL — watchlistarr serves a JSON payload that includes both the TMDB `id` (read by Custom Lists) and the `imdb_id` (read by StevenLu Custom). Use Custom Lists if you want the fastest resolution; use StevenLu Custom if you prefer matching by IMDb.
-2. **Name**: whatever you like.
-3. **List URL**: one of the URLs above (use the Copy button in watchlistarr's UI).
-4. **Enable Automatic Add**: `Yes` (otherwise Radarr only lists candidates instead of importing).
-5. Pick your **Quality Profile**, **Root Folder** and **Minimum Availability**.
-6. Click **Test** → should turn green. **Save**.
-
-> If watchlistarr and Radarr run in the same Docker network, use the service name as the host: `http://watchlistarr:8080/...`
+> If Radarr and watchlistarr run in the same Docker network, use the service name as the host: `http://watchlistarr:8080/...`
+> The **StevenLu Custom** list type in Radarr works with the same URLs too.
 
 ## Configuration
 
-Most settings live in the web UI and apply instantly — no restart needed:
+Day-to-day settings live in the web UI and apply instantly: users, lists, sync intervals, custom list rules.
 
-- Add or remove users
-- Enable / disable individual lists
-- Per-list sync intervals
-- Custom list rules (sources, filters, rotation, sort order)
-
-A few low-level options live in `.env` and require a `docker compose restart` to apply:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `HTTP_PORT` | `8080` | Port the UI and API listen on. |
-| `LOG_LEVEL` | `info` | One of `debug`, `info`, `warning`, `error`. |
-| `LOG_FORMAT` | `plain` | Use `json` if you ship logs to a collector. |
-
-The full list — sync frequencies, anti-flap thresholds, user agent — is documented in [`.env.example`](.env.example). The defaults are sensible for most setups.
+A few startup options (port, log level, default sync frequencies) can be set as environment variables on the container — see [`.env.example`](.env.example) for the full list. The defaults are sensible, so most setups don't need any of them.
 
 ## Updating
 
@@ -133,43 +98,20 @@ docker compose pull
 docker compose up -d
 ```
 
-Database migrations run automatically on startup. Before jumping across versions, check the [CHANGELOG](CHANGELOG.md) for breaking changes.
+Updates are applied automatically — no manual steps.
 
-## Backup & restore
+## Backup
 
-Your data lives in `./data/watchlistarr.db` (a single SQLite file).
-
-```bash
-# Quick backup
-docker compose stop watchlistarr
-cp data/watchlistarr.db "data/watchlistarr.db.$(date +%F)"
-docker compose start watchlistarr
-```
-
-To restore: stop the container, replace `data/watchlistarr.db` with your backup, start it again.
+All your data is a single file: `watchlistarr.db` inside the folder you mapped to `/data`. Copy it somewhere safe while the container is stopped, and copy it back to restore.
 
 ## Troubleshooting
 
-- **Container won't start** — `docker compose logs watchlistarr`. Most issues come from typos in `.env`. Duration values must look like `15m`, `1h`, `7d`.
-- **UI loads but `/healthz` returns 503** — the database file isn't writable. Check permissions on the `./data` folder.
-- **Radarr's Test button fails** — open the URL in your browser. You should see a JSON list (it can be `[]` if the list is empty). Double-check the trailing slash.
-- **Radarr is empty after the import** — open the watchlistarr UI and check the sync status on the list. You can trigger a refresh from the list's ⚙ menu.
-- **Letterboxd returns 429** — you're hitting Letterboxd too often. Increase the sync interval on noisy lists from the UI.
-- **Live logs** — the **Activity** tab in the UI, or `docker compose logs -f watchlistarr`.
-
-## Development
-
-```bash
-uv sync
-uv run alembic upgrade head
-uv run uvicorn watchlistarr.main:app --reload --port 8080
-```
-
-Internal docs (architecture, scraping rules, data model, release process) live in [CLAUDE.md](CLAUDE.md) and [`.claude/`](.claude/).
-
-## Contributing
-
-Bug reports and feature requests are welcome — [open an issue](https://github.com/maxlainz/watchlistarr/issues). For code changes, open a PR against the `dev` branch and make sure the five CI checks pass (`ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`).
+- **Container won't start** — `docker compose logs watchlistarr`. Usually a typo in an environment variable; durations must look like `15m`, `1h`, `7d`.
+- **Radarr's Test button fails** — open the URL in your browser first: you should see a list in brackets (even an empty `[]` is fine). Don't forget the trailing slash.
+- **Radarr imports nothing** — check the list's sync status in the watchlistarr UI; you can force a refresh from the list's ⚙ menu.
+- **Errors mentioning the database** — check that the folder you mapped to `/data` exists and is writable.
+- **Letterboxd errors in the Activity tab** — you may be syncing too often; increase the interval on the noisiest lists.
+- **Found a bug?** — [open an issue](https://github.com/maxlainz/watchlistarr/issues).
 
 ## License
 
