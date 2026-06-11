@@ -16,6 +16,7 @@ CI corre 5 steps en `qa`: `ruff check`, `ruff format --check`, `mypy`, `pytest`,
 - **`scripts/smoke.py`** importa modelos y golpea endpoints reales con un server real. Si renombras un modelo, cambias el esquema de la DB, alteras una ruta HTTP o cambias la forma del JSON, actualízalo en el mismo commit. Es la única red de seguridad end-to-end del CI.
 - **Cualquier cambio en `pyproject.toml`** (deps añadidas/quitadas) requiere `uv lock` + commitear `uv.lock`. CI usa `--frozen` y falla si no concuerdan.
 - Cuando añadas/borres rutas HTTP, actualiza también los asserts `404` en `scripts/smoke.py` y `tests/integration/test_ui_smoke.py` para que las rutas viejas sigan siendo verificadas como muertas.
+- **Cambios en `.github/workflows/ci.yml` no se validan en local** — los 5 steps no cubren el workflow en sí. Antes de tocar un pin de action, verificar que el ref existe (`git ls-remote --tags`; no todas publican tag flotante de major — p.ej. `setup-uv` solo publica minors flotantes tipo `v8.2`). Tras pushear a `dev`, **esperar a que el run remoto esté en verde antes de mergear a `main`**.
 
 Comando único antes de pushear:
 
