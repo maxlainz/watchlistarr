@@ -1,6 +1,6 @@
 ---
 name: watchlistarr-debugging-playbook
-description: Symptom-to-diagnosis-to-fix decision trees for a live watchlistarr instance. Use when something is broken or weird at runtime — a list stopped syncing, a UI spinner never ends, Letterboxd returns 403 or 5xx, "database is locked", Radarr shows "No results returned" or imports nothing, films flicker in and out of Radarr, an expected film is missing from a custom list, sync errors after a Letterboxd HTML change (selector drift), the web UI is blank, a migration fails at boot, or first sync feels stuck/slow. NOT for full historical incident write-ups → use `watchlistarr-failure-archaeology`; NOT for Letterboxd URL/selector/RSS reference tables → use `letterboxd-scraping-reference`; NOT for the Radarr JSON contract details → use `radarr-integration-reference`; NOT for normal run/deploy/QC workflows → use `watchlistarr-run-and-operate`; NOT for building diagnostic scripts → use `watchlistarr-diagnostics-and-tooling`; NOT for planning systemic fixes → use `watchlistarr-hardening-campaign`.
+description: Symptom-to-diagnosis-to-fix decision trees for a live watchlistarr instance. Use when something is broken or weird at runtime — a list stopped syncing, a UI spinner never ends, Letterboxd returns 403 or 5xx, "database is locked", Radarr shows "No results returned" or imports nothing, films flicker in and out of Radarr, an expected film is missing from a custom list, sync errors after a Letterboxd HTML change (selector drift), the web UI is blank, a migration fails at boot, or first sync feels stuck/slow. NOT for full historical incident write-ups → use `watchlistarr-failure-archaeology`; NOT for Letterboxd URL/selector/RSS reference tables → use `letterboxd-scraping-reference`; NOT for the Radarr JSON contract details → use `radarr-integration-reference`; NOT for normal run/deploy/QC workflows → use `watchlistarr-run-and-operate`; NOT for ready-made read-only inspection scripts and probes → use `watchlistarr-diagnostics-and-tooling`; NOT for planning systemic fixes → use `watchlistarr-hardening-campaign`.
 ---
 
 # watchlistarr debugging playbook
@@ -25,7 +25,7 @@ Format per playbook: SYMPTOM → EVIDENCE TO COLLECT → DECISION TREE → VERIF
 
 ## Conventions used below
 
-- **`$PORT`**: host port. Default 8080 (`docker-compose*.yml` map `${HTTP_PORT:-8080}:8080`; in-container port is always 8080). Determine it: `PORT=$(grep -oE '^HTTP_PORT=[0-9]+' .env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8080}` — the owner's dev box uses 8088 via an uncommitted `.env`; a fresh clone is 8080.
+- **`$PORT`**: host port. Default 8080 (`docker-compose*.yml` map `${HTTP_PORT:-8080}:8080`; in-container port is always 8080). Determine it: `PORT=$(grep -oE '^HTTP_PORT=[0-9]+' .env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8080}` — a fresh clone is 8080; the owner's :8088 QC caveat → `watchlistarr-run-and-operate`.
 - **Container name**: `watchlistarr` (prod compose) or `watchlistarr-dev` (dev compose). Substitute accordingly.
 - **DB file**: on the host at `./data/watchlistarr.db` (compose volume `./data:/data`). Local non-Docker dev defaults to the relative `data/watchlistarr.db` (`config.py:45`). The image has no `sqlite3` CLI — run `sqlite3` on the host. WAL mode means `-wal`/`-shm` sidecars are normal.
 - **Inspect read-only** to avoid taking locks: `sqlite3 "file:data/watchlistarr.db?mode=ro"`. Only write to the DB with the app stopped, or accept that the app retries via `busy_timeout=10000` (`db.py:26`).
@@ -87,7 +87,7 @@ DECISION TREE:
 - **`last_sync_status='error'`** → read the newest `scrape_runs.error` for that `target_id` (any exception in a list/watchlist job also stamps `lists.last_sync_status='error'`, `scheduler.py:241-247`). Route by error text: 403/5xx → Playbook 2; "database is locked" → Playbook 3; parse/ValueError → Playbook 7.
 - **No `list-incr-{id}`/`list-full-{id}` job for the list** → jobs exist only for `enabled=1` lists (`scheduler.py:156`), and `watchlist-*` jobs only when the watchlist row is enabled (`scheduler.py:137`). If the list IS enabled but the job is missing, the scheduler is out of sync with the DB: `curl -s -X POST http://localhost:$PORT/admin/scheduler/sync`.
 - **List unexpectedly `enabled=0`** → discovery disables lists that vanish from the user's Letterboxd lists index (`services/scrape/discovery.py:81-89`, log event `discovery.disabled_missing`). Either it was really deleted/renamed on Letterboxd, or the index parse silently returned nothing → Playbook 7.
-- **Job exists but interval is huge** → per-entity override: `SELECT lists_incremental_interval, lists_full_interval, flap_confirm_scrapes FROM lists WHERE id=<ID>;` and the user columns for watchlists. Precedence: `effective = entity_override if entity_override is not None else env_default` (`services/intervals.py`).
+- **Job exists but interval is huge** → per-entity override: `SELECT lists_incremental_interval, lists_full_interval, flap_confirm_scrapes FROM lists WHERE id=<ID>;` and the user columns for watchlists. **Settings precedence**: interval overrides resolve via `or` — `effective = entity_override or env_default` — so a falsy override (NULL **or 0**) falls through to the env default; ONLY `flap_confirm_scrapes` resolves via `is None`, so a stored 0 is honored there (the API coerces 0→None; anti-flap treats threshold 0 like 1). (`services/intervals.py:10-41`)
 
 VERIFY FIXED: `curl -s -X POST http://localhost:$PORT/admin/refresh/list-full-<ID>` (blocks until done), then confirm the newest `scrape_runs` row for that target is `success` and `lists.last_synced_at` moved.
 
@@ -159,6 +159,8 @@ sqlite3 "file:data/watchlistarr.db?mode=ro" \
    JOIN films f ON f.tmdb_id=ci.tmdb_id GROUP BY cl.id;"
 ```
 
+(Quick per-list counts; the reference form of the imdb-coverage query — a single UNION over raw + custom lists — lives in `radarr-integration-reference`.)
+
 DECISION TREE:
 
 - **404** → (a) wrong URL shape — it is `/lists/{slug}/`, `/{username}/watchlist/`, `/{username}/{slug}/`; older docs claiming `/list/<list_id>` are wrong (standing erratum, see `watchlistarr-docs-and-writing`); (b) raw list or watchlist is disabled — raw endpoints 404 when `enabled=0` (`radarr.py:75,100`); note custom lists NEVER 404 on their dead `enabled` flag (`radarr.py:39-51`); (c) username is in `RESERVED_USERNAMES` or unknown.
@@ -203,10 +205,10 @@ VERIFY FIXED: two consecutive probes of the served endpoint return the same ETag
 
 SYMPTOM: "film X should be in custom list Y but Radarr/the UI doesn't show it."
 
-Walk the resolution funnel with SQL, in this order — stop at the first stage that drops the film. Set `TID=<tmdb_id>` and get `CLID`: `SELECT id FROM custom_lists WHERE slug='<slug>';`
+Walk the resolution funnel with SQL, in this order — stop at the first stage that drops the film. Set `TID=<tmdb_id>` and get `CLID`: `SELECT id FROM custom_lists WHERE slug='<slug>';` (The heredoc delimiter below is unquoted so the shell expands `$TID`/`$CLID`; the `<include list_ids>`-style placeholders must still be replaced by hand.)
 
 ```bash
-sqlite3 "file:data/watchlistarr.db?mode=ro" <<'SQL'
+sqlite3 "file:data/watchlistarr.db?mode=ro" <<SQL
 -- 0. Is the film resolved at all? (TV shows are silently dropped: tmdb_type != 'movie')
 SELECT tmdb_id, title, year, tmdb_type, imdb_id, letterboxd_avg_rating FROM films WHERE tmdb_id=$TID;
 -- 1. What are the sources? (role include|subtract; exactly one of list_id / source_custom_list_id)
@@ -265,7 +267,7 @@ docker logs --tail 2000 watchlistarr 2>&1 | grep -E "full_sync.page|full_sync|in
 uv run python -c "
 import httpx
 from watchlistarr.services.letterboxd.lists import parse_list_items, parse_total_pages
-html = httpx.get('https://letterboxd.com/<user>/watchlist/', headers={'User-Agent': 'watchlistarr-debug'}, follow_redirects=True).text
+html = httpx.get('https://letterboxd.com/<user>/watchlist/', headers={'User-Agent': 'watchlistarr/1.5.2 (+https://github.com/maxlainz/watchlistarr)'}, follow_redirects=True).text
 print('items:', len(parse_list_items(html)), 'pages:', parse_total_pages(html))"
 ```
 
@@ -275,7 +277,7 @@ DECISION TREE:
 - **No errors, but `page_items=0` or `total_pages=1` for a known multi-page list** → silent drift in `parse_list_items` / `parse_total_pages`. Same fix, and check flap counters afterwards (Playbook 5) — reappearing items reset to 0 automatically on the next good scrape (`watchlist.py:76`).
 - **Enabled lists suddenly disabled + `discovery.disabled_missing` logs** → `parse_lists_index` drift. Re-enable via UI toggle after fixing (toggle off→on also kicks an immediate full sync, `v1.py:578-591`).
 
-Fixture + test loop: save the live HTML into `tests/fixtures/` alongside the 8 existing captures (`lists_index.html`, `watchlist_p1.html`, `pagination_block.html`, `pagination_single.html`, `film_page_movie.html`, `film_page_tv.html`, `films_p1.html`, `rss_feed.xml`; loaders in `tests/unit/letterboxd/conftest.py`), update the selector, then iterate: `uv run pytest tests/unit/letterboxd/ -q`. Selector reference tables live in `letterboxd-scraping-reference`. Ship the fix through `watchlistarr-change-control` (full local CI before push).
+Fixture + test loop: save the live HTML into `tests/fixtures/` alongside the 8 existing captures (as of 2026-07 — `ls tests/fixtures/`; inventory table in `letterboxd-scraping-reference`; loaders in `tests/unit/letterboxd/conftest.py`), update the selector, then iterate: `uv run pytest tests/unit/letterboxd/ -q`. Selector reference tables live in `letterboxd-scraping-reference`. Ship the fix through `watchlistarr-change-control` (full local CI before push).
 
 VERIFY FIXED: parser tests green with the new fixture; trigger a full sync and confirm plausible counts and `SELECT COUNT(*) FROM list_items WHERE list_id=<ID> AND pending_removal_count>0;` returns to ~0.
 
@@ -294,7 +296,7 @@ curl -s http://localhost:$PORT/api/v1/bootstrap | head -c 200   # data layer ali
 
 DECISION TREE:
 
-- **Console shows a Babel/SyntaxError** → broken JSX in one of the nine `type="text/babel"` scripts (`src/watchlistarr/static/index.html:16-26`). Fix the file; no build step exists.
+- **Console shows a Babel/SyntaxError** → broken JSX in one of the eleven `type="text/babel"` script files (`src/watchlistarr/static/index.html:16-26`; plus one inline babel block at :28). Fix the file; no build step exists.
 - **Console shows `window.X is undefined`** → components communicate via `window.*` globals and load in a fixed order (`app.jsx` last); a renamed/removed global or reordered script tag breaks the chain.
 - **Static 404s** → assets are vendored inside the package at `src/watchlistarr/static/` and mounted at `/static` (`main.py:77`); the image copies `src/` wholesale. A 404 means the file genuinely isn't in the image/checkout — rebuild (`docker compose -f docker-compose.dev.yml up -d --build`).
 - **UI is stale after a deploy** → the shell injects `?v=<version>-<startup epoch>` on every static ref at app construction and serves `/` with `Cache-Control: no-cache` (`main.py:105-122`). If old UI persists: view-source and check the `?v=` value changed — if it didn't, the container wasn't actually rebuilt/restarted.
@@ -333,7 +335,7 @@ VERIFY FIXED: boot log shows `watchlistarr.ready`, `curl -s localhost:$PORT/heal
 
 SYMPTOM: onboarding a user "hangs" for tens of minutes; spinners for a long time; RUNNING scrape_runs for ages.
 
-This is by design, not a bug. Film identity resolution fetches `/film/{slug}/` once per unknown slug at a minimum 2s spacing (`MIN_INTERVAL_SECONDS=2.0`, `client.py:15`; fetch loop in `film_resolver.py`). The initial run full-syncs **every** discovered list including the watchlist (`services/onboarding.py:89-138`). Expected arithmetic: a 1000-film watchlist ≈ 1000 × 2s ≈ **34+ minutes** of film-page fetches alone, plus list pages — thousands of films means hours. Films that genuinely lack an IMDb link or a rating are re-fetched on every sync that includes them (cache requires both `imdb_id` AND `letterboxd_avg_rating` non-NULL, `film_resolver.py:108`) — a permanent slow tail.
+This is by design, not a bug. Film identity resolution fetches `/film/{slug}/` once per unknown slug at a minimum 2s spacing (`MIN_INTERVAL_SECONDS=2.0`, `client.py:15`; fetch loop in `film_resolver.py`). The initial run full-syncs **every** discovered list including the watchlist (`services/onboarding.py:89-146`). Expected arithmetic: a 1000-film watchlist ≈ 1000 × 2s ≈ **34+ minutes** of film-page fetches alone, plus list pages — thousands of films means hours. Films that genuinely lack an IMDb link or a rating are re-fetched on every sync that includes them (cache requires both `imdb_id` AND `letterboxd_avg_rating` non-NULL, `film_resolver.py:108`) — a permanent slow tail.
 
 EVIDENCE: steady `film.resolve` lines flowing in the activity buffer = working, not stuck (no lines for minutes → Playbook 1 orphan branch).
 

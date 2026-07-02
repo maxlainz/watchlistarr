@@ -35,8 +35,9 @@ with `uv sync` done. Anchors verified against v1.5.2 (HEAD `4439c17`, 2026-07).
 **Use when** a parser mis-reads Letterboxd HTML (wrong count, missed items, wrong pagination) and
 you need a deterministic, network-free failing test.
 
-House rule: fixtures are real Letterboxd captures **trimmed to ≤ 5 KB each** (`.claude/tech-stack.md:190`).
-Current fixtures are all under 3.1 KB (`ls -la tests/fixtures/`).
+House rule: fixtures are real Letterboxd captures trimmed to match the existing size range —
+see `watchlistarr-validation-and-qa` §fixtures for the rule (current specimens run 279 B – 3 KB;
+`ls -la tests/fixtures/`).
 
 1. Capture a specimen once, with the honest User-Agent (scraping etiquette, `.claude/rules.md:74-82`):
    ```bash
@@ -104,7 +105,7 @@ template: seed user+list rows, `respx.get(<absolute URL>).mock(return_value=http
 for every URL in the table (fixture files via `fixture_text()` from
 `tests/integration/conftest.py:14`, film pages via an inline `_stub_film_page` helper), call the
 real `sync_list_full`/`sync_list_incremental` with the `factory` and `letterboxd_client` fixtures
-(rate limit is 0 in tests, `tests/integration/conftest.py:24`), then **assert the DB end-state**
+(rate limit is 0 in tests, `tests/integration/conftest.py:25`), then **assert the DB end-state**
 by selecting `ListItem` rows. For pure reconciliation logic you can skip HTTP entirely and drive
 `reconcile_full_scrape` on a session — that is exactly what
 `tests/integration/test_scrape_anti_flap.py` does (the anti-flap canonical formula lives in
@@ -152,11 +153,14 @@ transaction is being held across slow work.
    rg -nU --multiline-dotall 'async with factory\(\) as session:.{0,800}?await client\.' src/watchlistarr/
    ```
    Treat hits as **candidates, not verdicts**: the pattern also matches the correct
-   read-session → close → fetch shape (it fires today on `film_resolver.py:96` followed by the
-   fetch loop at `:114-117`, which is fine — the session block closed at `:101`). For each hit,
-   check indentation: is `await client.` *inside* the `async with` block? Complement with the
-   exhaustive list of call sites: `rg -n 'await client\.' src/watchlistarr/services/` (11 hits as
-   of v1.5.2) and confirm none sits inside a session block.
+   read-session → close → fetch shape. It fires today on `film_resolver.py:96` followed by the
+   fetch loop at `:114-117` (fine — the session block closed at `:101`) and on the three
+   `scheduler.py` `_with_*` wrappers at `:262+/:281+/:312+` (matches their `await client.aclose()`
+   in `finally` — also benign). For each hit, check indentation: is `await client.` *inside* the
+   `async with` block? Complement with the exhaustive list of call sites:
+   `rg -n 'await client\.' src/watchlistarr/services/` (13 hits as of v1.5.2: 11 `client.get(...)`
+   fetches + 2 `client.aclose()` in `onboarding.py:137,181`) and confirm none of the `.get` calls
+   sits inside a session block.
 4. **Prove concurrency safety dynamically**: the regression test
    `tests/integration/test_scrape_concurrency.py:29-64` runs two writing scrapers under
    `asyncio.gather` against one file-backed DB. Extend it (same shape, your two jobs) to prove a
@@ -357,7 +361,7 @@ before trusting, in one line each:
 
 | Fact | Re-verify with |
 |---|---|
-| Fixture inventory and ≤5 KB sizes | `wc -c tests/fixtures/*` and `grep -n "5 KB" .claude/tech-stack.md` |
+| Fixture inventory and size range | `wc -c tests/fixtures/*` (size rule owned by `watchlistarr-validation-and-qa`) |
 | Fixture loader pattern | `sed -n '14,51p' tests/unit/letterboxd/conftest.py` |
 | Incremental URL trick (`by/added-earliest`) | `grep -n "added-earliest" src/watchlistarr/services/scrape/lists.py tests/integration/test_scrape_lists.py` |
 | Full/incremental sync URL sequence | read `src/watchlistarr/services/scrape/lists.py` and `watchlist.py` top to bottom |

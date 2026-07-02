@@ -96,7 +96,7 @@ The worksheet needs instruments; those live in `watchlistarr-proof-and-analysis-
 
 | Question | Source |
 |---|---|
-| Did a scrape run in window T? | `scrape_runs` table (`started_at`, `finished_at`, `status`) |
+| Did a scrape run in window T? | `scrape_runs` table (`started_at`, `ended_at`, `status`) |
 | What did Radarr actually receive? | `curl` the route + `ETag` comparison — see `radarr-integration-reference` |
 | What does the serve path compute? | Read `src/watchlistarr/services/radarr.py` (it is a pure SELECT — DB-authoritative) |
 | When did behavior X start? | `git log -S` / bisect against fixtures |
@@ -276,7 +276,7 @@ Current tombstones (as of 2026-07, v1.5.2) — one line each; full entries in
 |---|---|---|
 | Per-list scrape cooldown | Wrong mechanism for Radarr churn (§3); replaced by snapshot mode | `23fec33` → `c8991da`, migrations 0007/0008 |
 | Global `settings` DB table + `/settings` screen | Replaced by per-entity nullable overrides + env defaults | `a967bbd`, migration 0002; see `watchlistarr-config-and-flags` |
-| HTMX + Pico UI | Replaced by React 18 SPA within ~30 h of the MVP | `58c94ab` → `434e250`/`72ff656` |
+| HTMX + Pico UI | Replaced by React 18 SPA ~12 hours after the MVP (554a808 09:18 → 434e250 20:07 / 72ff656 21:29, same day) | `58c94ab` → `434e250`/`72ff656` |
 | Predefined combined endpoints (`/all/...`) + `Sublist` model | Replaced by multi-source Custom Lists (intentional breaking change, pre-1.0) | `58c94ab`, migration 0003 |
 
 Do not re-propose any of these without NEW evidence that invalidates the recorded reason.

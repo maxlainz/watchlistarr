@@ -83,9 +83,11 @@ Details (verified `config.py:13-31`):
 
 ## 3. Settings precedence (canonical)
 
-> **Settings precedence**: `effective = entity_override if entity_override is not None else env_default`
-> (`services/intervals.py`; entity = `users` or `lists` nullable columns; env via `config.py`,
-> lru-cached, immutable after boot).
+> **Settings precedence**: interval overrides resolve via `or` — `effective = entity_override
+> or env_default` — so a falsy override (NULL **or 0**) falls through to the env default;
+> ONLY `flap_confirm_scrapes` resolves via `is None`, so a stored 0 is honored there (the API
+> coerces 0→None; anti-flap treats threshold 0 like 1). (`services/intervals.py:10-41`; entity =
+> `users` or `lists` nullable columns; env via `config.py`, lru-cached, immutable after boot.)
 
 Concrete resolution walk — which DB column overrides which env default:
 
@@ -103,11 +105,9 @@ Concrete resolution walk — which DB column overrides which env default:
 Override columns: `src/watchlistarr/models/users.py:23-29`, `src/watchlistarr/models/lists.py:49-51`.
 All nullable; `NULL` means "use env default".
 
-Implementation nuance (matters only for zero values): the seven interval helpers use `or`
-(falsy fallthrough — a zero timedelta override would fall back to env), while `list_flap_threshold`
-uses an explicit `is None` check, so a stored `0` **is** honored for the flap threshold (§9). In
-practice the intervals can never be zero via API because `_td_from_hours` maps `hours <= 0` to `None`
-(`routes/api/v1.py:62-65`).
+In practice the intervals can never be zero via API anyway, because `_td_from_hours` maps
+`hours <= 0` to `None` (`routes/api/v1.py:62-65`) — the `or` fallthrough matters only for direct
+DB edits (§4.3). Flap-threshold-0 semantics: §8.
 
 ## 4. The three settability tiers
 
@@ -138,15 +138,18 @@ recreating the process (`docker compose up -d` re-reads `env_file`).
 `users.rss_interval`, `users.films_backstop_interval`, `users.discovery_interval` are honored by the
 scheduler (`scheduler.py:113,131,122`) and `custom_lists.added_after`/`added_before` are honored by
 `_apply_filters` (`services/custom_lists.py:185-186`), but **no endpoint parses them** — grep
-`routes/` for `rss_interval` or `addedAfter` to confirm. Only reachable via direct DB edit, e.g.:
+`routes/` for `rss_interval` or `addedAfter` to confirm. Only reachable via direct DB edit.
+`Interval` columns on SQLite are stored as **epoch-relative datetimes** (SQLAlchemy `Interval` is
+DateTime-backed on SQLite; conventions note in `watchlistarr-debugging-playbook`), so 1 hour is
+written as `'1970-01-01 01:00:00.000000'`:
 
 ```bash
-sqlite3 data/watchlistarr.db "UPDATE users SET rss_interval = 3600.0 WHERE letterboxd_username = 'x';"
+sqlite3 data/watchlistarr.db "UPDATE users SET rss_interval = '1970-01-01 01:00:00.000000' WHERE letterboxd_username = 'x';"
 ```
 
-(unverified: exact SQLite storage encoding of SQLAlchemy `Interval` values — inspect an existing row
-before writing one). Treat as open candidate work: expose via API or remove the columns. Several docs
-misstate this area — see the standing errata table in `watchlistarr-docs-and-writing`.
+(Prudence: inspect an existing non-NULL override row first and copy its exact format.) Treat as
+open candidate work: expose via API or remove the columns. Several docs misstate this area — see
+the standing errata table in `watchlistarr-docs-and-writing`.
 
 ## 5. Env immutability after boot
 
@@ -198,7 +201,8 @@ is env-file-only.
    inside the container (Dockerfile creates `/data`, compose mounts `./data:/data`). The bare code
    default (`config.py:45`) has three slashes = **relative** `data/...` from the cwd, correct for
    local `uv run` dev. If you copy `.env.example` and run **without Docker**, the 4-slash URL points
-   at root-level `/data/` (usually nonexistent) — change it to 3 slashes.
+   at root-level `/data/` (usually nonexistent) — change it to 3 slashes AND `mkdir -p data`
+   (SQLite creates the file, never the directory). Full setup walk: `watchlistarr-build-and-env`.
 
 ## 8. The `flap_confirm_scrapes = 0` trap
 

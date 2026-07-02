@@ -52,7 +52,7 @@ Rules and pitfalls:
   redirect rather than the payload directly — whether Radarr follows it is untested here; do not
   rely on it.
 - **`/list/<list_id>` and `/radarr/list/{id}` DO NOT EXIST.** `workflows.md` L42-43 and
-  `versioning.md` L11 currently claim they do — wrong as of 2026-07, see the standing errata table
+  `versioning.md` L10 currently claim they do — wrong as of 2026-07, see the standing errata table
   in `watchlistarr-docs-and-writing`.
 - **RESERVED_USERNAMES guard**: the two `{username}` routes return a bare 404 when
   `username in RESERVED_USERNAMES` — the frozenset `{"all", "api", "admin", "static", "health",
@@ -118,9 +118,11 @@ official spec — Radarr/Radarr#8370 was closed *not planned*).
 + migration 0004 + backfill were added for exactly this (`59ad738`, v1.0.1) — full story in
 `watchlistarr-failure-archaeology`.
 
-Check imdb_id coverage of everything currently served (run from repo root; dev default DB is
-`data/watchlistarr.db` per `config.py:45`; in Docker the same file is `/data/watchlistarr.db`
-inside the container = `./data/watchlistarr.db` on the host, `docker-compose.dev.yml:10`):
+Check imdb_id coverage of everything currently served — this UNION query is the reference form
+of the imdb-coverage check; siblings keep short variants and link here. (Run from repo root; dev
+default DB is `data/watchlistarr.db` per `config.py:45`; in Docker the same file is
+`/data/watchlistarr.db` inside the container = `./data/watchlistarr.db` on the host,
+`docker-compose.dev.yml:10`):
 
 ```bash
 sqlite3 data/watchlistarr.db "
@@ -232,7 +234,7 @@ edits to the Radarr surface:
 | 304 handling + media type | `sed -n 26,36p src/watchlistarr/routes/api/radarr.py` |
 | Raw serve = unfiltered/uncapped/position | `sed -n 17,29p src/watchlistarr/services/radarr.py` |
 | Custom serve ordering + snapshot + LIMIT | `sed -n 32,56p src/watchlistarr/services/radarr.py` |
-| custom_lists.enabled never checked | `grep -n "enabled" src/watchlistarr/routes/api/radarr.py \|\| echo "never checked"` |
+| custom_lists.enabled never checked | `grep -n "enabled" src/watchlistarr/routes/api/radarr.py` — expect exactly two hits (:75, :100 — the raw routes); no hit inside `custom_list_endpoint` (:39-51) confirms the claim |
 | SortOrder members | `sed -n 47,51p src/watchlistarr/models/enums.py` |
 | Router registration order | `grep -n "include_router" src/watchlistarr/main.py` |
 | Smoke asserts (the contract's safety net) | `sed -n 314,377p scripts/smoke.py` |

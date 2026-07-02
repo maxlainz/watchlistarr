@@ -132,9 +132,10 @@ change that must go through `watchlistarr-change-control`.
 
 Every Radarr endpoint reads persisted rows (`services/radarr.py:17-29,32-56`) — no HTTP happens
 in a request handler. Consequences: served output is stable across Letterboxd outages; a scrape
-failure never produces an empty response (the previous state keeps being served); latency is
-milliseconds regardless of list size. Never add on-request scraping "for freshness" — freshness
-is the scheduler's job.
+failure never produces an empty response (the previous state keeps being served); latency is a
+single indexed SELECT (`ix_list_items_list_position` covers it — see
+`watchlistarr-proof-and-analysis-toolkit` Recipe 6; unmeasured beyond that). Never add
+on-request scraping "for freshness" — freshness is the scheduler's job.
 
 ### I2 — Anti-flap removal rule (additions instant, removals need proof)
 
@@ -192,8 +193,9 @@ other job and the UI. The "database is locked" incident behind this: `watchlista
 - Incremental syncs (`sync_watchlist_incremental`, `sync_list_incremental`) fetch only edge
   pages, **never remove items** (no reconcile call), and never rewrite existing positions:
   `_upsert_items(reassign_positions=False)` appends new items at
-  `max(existing position) + 1` (services/scrape/watchlist.py:48,58-62; used by lists at
-  services/scrape/watchlist.py:198 and services/scrape/lists.py). Only full syncs rewrite
+  `max(existing position) + 1` (services/scrape/watchlist.py:48,58-62; called with
+  `reassign_positions=False` by the watchlist incremental at services/scrape/watchlist.py:198
+  and the list incremental at services/scrape/lists.py:143). Only full syncs rewrite
   positions to the true list order. Violating this corrupts Radarr serving order (incident
   `25aa6e5` — see `watchlistarr-failure-archaeology`).
 
@@ -250,10 +252,12 @@ awaits the job inline, bypassing `max_instances=1`.
 
 ## Settings precedence
 
-Canonical formula: `effective = entity_override if entity_override is not None else env_default`
-(`services/intervals.py`; entity = `users` or `lists` nullable columns; env via `config.py`,
-lru-cached, immutable after boot). Full env-var table, override quirks (`or` vs `is None`,
-zero-value traps) and what is UI-settable → `watchlistarr-config-and-flags`.
+Canonical formula: **Settings precedence**: interval overrides resolve via `or` —
+`effective = entity_override or env_default` — so a falsy override (NULL **or 0**) falls through
+to the env default; ONLY `flap_confirm_scrapes` resolves via `is None`, so a stored 0 is honored
+there (the API coerces 0→None; anti-flap treats threshold 0 like 1). (`services/intervals.py:10-41`;
+entity = `users` or `lists` nullable columns; env via `config.py`, lru-cached, immutable after
+boot). Full env-var table, override quirks and what is UI-settable → `watchlistarr-config-and-flags`.
 
 ## Data-model summary
 

@@ -1,6 +1,6 @@
 ---
 name: letterboxd-scraping-reference
-description: Everything about scraping Letterboxd in watchlistarr — the URL surface (profile validation, /lists/, /list/{slug}/, /watchlist/, /films/, /film/{slug}/, /rss/), the fragile HTML selectors and what breaks (loudly vs silently) when Letterboxd changes its markup, the O(2)-fetch incremental-scrape trick, RSS guid/namespace parsing, TMDB/IMDb resolution from film pages, the real (per-client, NOT global) rate limiting, Cloudflare 403 semantics, anti-bot etiquette, the LETTERBOXD_OFFLINE kill-switch, and the tests/fixtures/ specimen inventory. Use when touching services/letterboxd/*, services/scrape/*, when a scrape returns 0 items, when a selector seems broken, when investigating 403s, or when adding a new Letterboxd page type. NOT for the Radarr JSON contract or ETag behavior → use `radarr-integration-reference`. NOT for scheduling policy, job intervals, or the anti-flap canonical formula → use `watchlistarr-architecture-contract` (scheduler + invariants) and `watchlistarr-config-and-flags` (interval env vars). NOT for historical incident stories → use `watchlistarr-failure-archaeology`.
+description: Everything about scraping Letterboxd in watchlistarr — the URL surface (profile validation, /lists/, /list/{slug}/, /watchlist/, /films/, /film/{slug}/, /rss/), the fragile HTML selectors and what breaks (loudly vs silently) when Letterboxd changes its markup, the O(2)-fetch incremental-scrape trick, RSS guid/namespace parsing, TMDB/IMDb resolution from film pages, the real (per-client, NOT global) rate limiting, Cloudflare 403 semantics, anti-bot etiquette, the LETTERBOXD_OFFLINE kill-switch, and the tests/fixtures/ specimen inventory. Use when touching services/letterboxd/*, services/scrape/*, when a scrape returns 0 items, when a selector seems broken, when investigating 403s, or when adding a new Letterboxd page type. NOT for step-by-step triage of a live 0-item sync or 403 incident → use `watchlistarr-debugging-playbook` (Playbooks 2 and 7) first; this skill is the selector/URL reference it links back to. NOT for the Radarr JSON contract or ETag behavior → use `radarr-integration-reference`. NOT for scheduling policy, job intervals, or the anti-flap canonical formula → use `watchlistarr-architecture-contract` (scheduler + invariants) and `watchlistarr-config-and-flags` (interval env vars). NOT for historical incident stories → use `watchlistarr-failure-archaeology`.
 ---
 
 # Letterboxd scraping reference
@@ -20,6 +20,7 @@ and fixtures. Parsers live in `src/watchlistarr/services/letterboxd/`; orchestra
 
 ## When NOT to use
 
+- Live triage of a 0-item sync, selector-drift incident, or 403 storm (evidence commands, flap-counter check, fixture loop) → `watchlistarr-debugging-playbook` Playbooks 2 and 7 first; come here for the reference tables they link to.
 - Served JSON shape, `imdb_id` omission, ETag/304, StevenLuParser behavior → `radarr-integration-reference`.
 - Which jobs run when, interval defaults/overrides, the anti-flap removal formula verbatim → `watchlistarr-architecture-contract` and `watchlistarr-config-and-flags`.
 - The TMDB-remap crash story or the "database is locked" story in full → `watchlistarr-failure-archaeology`.
@@ -151,10 +152,13 @@ Read `services/letterboxd/client.py` before believing any doc:
 - **Per-client-instance** `asyncio.Lock` + minimum 2.0 s spacing between requests
   (`client.py:15,46,67-70,77-83`). The lock serializes requests **within one `LetterboxdClient`
   only**.
-- **There is NO per-domain or global rate limit.** Each scheduler job wrapper constructs its own
-  client (`scheduler.py:260,279,310`), as do the initial run and the toggle-triggered immediate
-  sync (`services/onboarding.py:99,167`) — concurrent jobs DO hit Letterboxd in parallel. Any doc
-  claiming a global limiter is wrong; closing this gap is `watchlistarr-hardening-campaign` track A.
+- **There is NO per-domain or global rate limit.** Six instantiation sites in `src/` each get
+  their own budget: the scheduler job wrappers (`scheduler.py:260,279,310`), the initial run and
+  the toggle-triggered immediate sync (`services/onboarding.py:99,167`), and username validation
+  on `POST /api/v1/users` (`routes/api/v1.py:509` — one client per add-user request); plus 2 in
+  `scripts/` (`backfill_imdb.py:28`, `backfill_ratings.py:29`). Concurrent jobs DO hit Letterboxd
+  in parallel. Any doc claiming a global limiter is wrong; closing this gap is
+  `watchlistarr-hardening-campaign` track A.
 - Retries: up to 3 attempts total, **only on 5xx**, backoff 1 s doubling (`client.py:17,85-102`).
 - **403 = hard fail, no retry** (`client.py:91-93`, log `letterboxd.forbidden`). 403 is Cloudflare's
   answer for blocked UAs, blocked `/by/*` sorts, and out-of-range pages — there is no recovery
@@ -232,7 +236,7 @@ trusting:
 | Film-page attributes, IMDb regex, JSON-LD rating | `grep -n "data-tmdb\|_IMDB_ID_RE\|aggregateRating" src/watchlistarr/services/letterboxd/film_page.py` |
 | Profile-validation header | `grep -n "x-letterboxd-type" src/watchlistarr/services/scrape/initial_run.py` |
 | Rate limit / retries / 403 / timeout constants | `grep -n "MIN_INTERVAL_SECONDS\|MAX_ATTEMPTS\|TIMEOUT_SECONDS\|403" src/watchlistarr/services/letterboxd/client.py` |
-| One-client-per-job reality | `grep -n "LetterboxdClient(settings" src/watchlistarr/scheduler.py src/watchlistarr/services/onboarding.py` |
+| One-client-per-job reality (6 sites in src/ + 2 in scripts/) | `grep -rn "LetterboxdClient(" src/ scripts/` |
 | RSS guid prefixes and movieId gate | `grep -n "_ACCEPTED_PREFIXES\|_IGNORED_PREFIXES\|tmdb_movieid" src/watchlistarr/services/letterboxd/rss.py` |
 | Incremental trick paths | `grep -n "by_added_earliest\|added-earliest" src/watchlistarr/services/scrape/lists.py` |
 | Position semantics | `grep -n "reassign_positions\|next_new_position" src/watchlistarr/services/scrape/watchlist.py` |

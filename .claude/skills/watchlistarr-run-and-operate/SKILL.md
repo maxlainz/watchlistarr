@@ -1,6 +1,6 @@
 ---
 name: watchlistarr-run-and-operate
-description: Run and operate watchlistarr day-to-day — start it locally (uvicorn --reload), run the dev-container QC loop (git push + docker compose -f docker-compose.dev.yml up -d --build + verification curls), deploy prod compose, understand the boot sequence (auto-migrations, interrupted-run cleanup, scheduler rebuild), trigger jobs manually (POST /admin/refresh/{job_id}, /admin/scheduler/sync, list toggle), know what really happens when a user is onboarded (full pre-sync of every discovered list), read logs/Activity (structlog, 2000-line ring buffer), check /healthz, back up and restore the SQLite DB, and run the backfill scripts. NOT for diagnosing failures once something is broken → `watchlistarr-debugging-playbook`. NOT for toolchain/build/dependency/.env-pitfall questions (uv, Docker image anatomy, lockfile) → `watchlistarr-build-and-env`. NOT for env-var semantics and settings precedence → `watchlistarr-config-and-flags`.
+description: Run and operate watchlistarr day-to-day — start it locally (uvicorn --reload), run the dev-container QC loop (git push + docker compose -f docker-compose.dev.yml up -d --build + verification curls), deploy prod compose, understand the boot sequence (auto-migrations, interrupted-run cleanup, scheduler rebuild), trigger jobs manually (POST /admin/refresh/{job_id}, /admin/scheduler/sync, list toggle), know what really happens when a user is onboarded (full pre-sync of every discovered list), read logs/Activity (structlog, 2000-line ring buffer), check /healthz, determine the real host port (container always listens on 8080; the :8088 QC port is owner-.env-only), back up and restore the SQLite DB, and run the backfill scripts. NOT for diagnosing failures once something is broken → `watchlistarr-debugging-playbook`. NOT for toolchain/build/dependency/.env-pitfall questions (uv, Docker image anatomy, lockfile) → `watchlistarr-build-and-env`. NOT for env-var semantics and settings precedence → `watchlistarr-config-and-flags`.
 ---
 
 # watchlistarr — run and operate
@@ -25,7 +25,7 @@ Runbook for starting, watching, poking, and backing up a watchlistarr instance (
 
 ## Port truth — determine `$PORT` first
 
-The container process **always listens on 8080** (hardcoded in `Dockerfile:25`; the `HTTP_PORT` setting is dead code in Python). `HTTP_PORT` only moves the **host-side** compose mapping (`"${HTTP_PORT:-8080}:8080"` in both `docker-compose.yml:7` and `docker-compose.dev.yml:8`) or the `--port` arg you pass to uvicorn locally. The owner's box maps **8088** via an uncommitted `.env` (`.env` is gitignored); a fresh clone defaults to **8080**. Never hardcode 8088 in anything you write.
+The container process **always listens on 8080** (hardcoded in `Dockerfile:25`; the `HTTP_PORT` setting is dead code in Python). `HTTP_PORT` only moves the **host-side** compose mapping (`"${HTTP_PORT:-8080}:8080"` in both `docker-compose.yml:7` and `docker-compose.dev.yml:8`) or the `--port` arg you pass to uvicorn locally. The owner's box maps **8088**, presumably via an uncommitted `.env` setting `HTTP_PORT=8088` (unverified — `.env` is gitignored); a fresh clone defaults to **8080**. Never hardcode 8088 in anything you write.
 
 ```bash
 PORT=$(sed -n 's/^HTTP_PORT=//p' .env 2>/dev/null); PORT=${PORT:-8080}
@@ -51,6 +51,8 @@ uv run uvicorn watchlistarr.main:app --reload --port "$PORT"
 ### 2. Dev container QC loop (after every commit on `dev`)
 
 House rule (CLAUDE.md): every code commit on `dev` is pushed and the QC container rebuilt immediately.
+**Precondition: the 5-step local gate has passed** (`watchlistarr-change-control` /
+`watchlistarr-validation-and-qa`) — never push without it.
 
 ```bash
 git push origin dev && docker compose -f docker-compose.dev.yml up -d --build
@@ -141,7 +143,7 @@ Use after editing interval/enabled columns directly in SQLite (the API endpoints
 
 `POST /api/v1/users {"username": "..."}` validates the username against **live Letterboxd** (400 on failure), creates the row, and spawns a fire-and-forget background task (v1.py:499-532, `schedule_initial_run` onboarding.py:147-156). Re-adding an existing username returns 200 idempotently and does **not** re-run onboarding (v1.py:518-522).
 
-The initial run (`onboarding.py:89-144`), each step audit-wrapped and failure-isolated (one failed step does not stop the rest, `_run_step` onboarding.py:73-86):
+The initial run (`onboarding.py:89-146`), each step audit-wrapped and failure-isolated (one failed step does not stop the rest, `_run_step` onboarding.py:73-86):
 
 1. Ensure the watchlist `lists` row exists (`enabled=False`).
 2. Discovery: scrape `/{username}/lists/` — every public list inserted `enabled=False`.
@@ -210,7 +212,7 @@ Verified against code at HEAD `4439c17` (v1.5.2), 2026-07. Re-verify before trus
 | Startup order | `sed -n '45,71p' src/watchlistarr/main.py` |
 | Container port hardcoded 8080 | `grep -n 'EXPOSE\|--port' Dockerfile` |
 | Compose port mapping default | `grep -n HTTP_PORT docker-compose.yml docker-compose.dev.yml` |
-| Job ids | `grep -n '"rotation-tick"\|"prune-scrape-runs"\|f"' src/watchlistarr/scheduler.py \| grep -- '-{'` |
+| Job ids | `grep -n '"rotation-tick"\|"prune-scrape-runs"\|-{uid}\|-{lst.id}' src/watchlistarr/scheduler.py` (all 9 ids: 2 global + 7 templated) |
 | trigger_now inline semantics | `sed -n '69,74p' src/watchlistarr/scheduler.py` |
 | Admin endpoints | `grep -n '@router.post' src/watchlistarr/routes/api/admin.py` |
 | Toggle immediate sync | `sed -n '578,592p' src/watchlistarr/routes/api/v1.py` |

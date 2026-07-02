@@ -41,8 +41,10 @@ with git, git wins — two such corrections are flagged inline.
 | 2026-05-24 → 2026-06-10 | 19-day gap, zero commits | — |
 | 2026-06-11 | Robustness audit (6 fixes → v1.5.1), repo goes public, GPL + README + CI → v1.5.2, final process-docs commit = HEAD | `3b90044`, `f7f28c6`, `4439c17` |
 
-99 commits total, 78 non-merge, 13 annotated tags v1.0.0–v1.5.2 on origin (as of 2026-07;
-recount: `git rev-list --count HEAD` — a prior handoff doc said 97, git says 99).
+97 commits total, 76 non-merge as of the audited anchor `4439c17` (before the skills commits);
+13 annotated tags v1.0.0–v1.5.2 on origin (as of 2026-07). Recount:
+`git rev-list --count 4439c17` / `git rev-list --count --no-merges 4439c17` — counting `HEAD`
+includes later docs/skills commits and will exceed 97.
 
 ## Incident index
 
@@ -218,7 +220,7 @@ recount: `git rev-list --count HEAD` — a prior handoff doc said 97, git says 9
 - **Symptom:** pressing "add user" froze the browser for minutes; after migrations, no INFO
   logs appeared at all.
 - **Root cause:** `run_initial_for_user` (discovery + full watchlist + films backstop, with a
-  2 s TMDB rate limit per slug) ran synchronously inside the POST handler. Separately,
+  2 s Letterboxd rate limit per film-page fetch) ran synchronously inside the POST handler. Separately,
   `alembic.fileConfig` reassigned root-logger handlers, silencing post-migration logging.
 - **Fix:** `293d4d5`: background `asyncio.create_task` with a GC-safe module-level reference
   set, immediate redirect, `setup_logging` re-run after Alembic (`force=True`). `3bb9ea8`:
@@ -298,8 +300,10 @@ and `users.watchlist_min_sync_interval` (migration `0007_min_sync_interval`), gu
 scheduler's `_run_*` wrappers emitting `scheduler.cooldown_skip`, a "Min interval between
 syncs" UI field with 24h/168h/720h hints, and 78 lines of interval tests. The guard was placed
 in the wrappers — not in `sync_*` — so a future "force sync" button could bypass it. That
-button was never built (immediate scrape on add/enable exists via `41a1ed3`, but no standalone
-force-sync endpoint); its raison d'être left with the revert.
+**UI button** was never built; its raison d'être left with the revert. Today's force-sync
+mechanisms are toggle off→on (immediate scrape on add/enable, via `41a1ed3`,
+`routes/api/v1.py:578-591`) and `POST /admin/refresh/{job_id}` — see
+`watchlistarr-run-and-operate`.
 
 `c8991da` (2026-05-23 19:19 — 33 minutes later) removed all of it. The diagnosis was wrong:
 Radarr's output churned because `serialize_custom_list` re-sorted by *current* rating on every
@@ -322,12 +326,15 @@ live DB. This story is also the worked example in `watchlistarr-research-methodo
 `a967bbd` (2026-05-20, pre-v1.0.0, migration `0002_settings_per_entity`) dropped the `settings`
 table, the `Setting` model, `services/settings.py`, and the `/settings` screen. Replaced by:
 env vars as immutable-after-boot defaults + nullable override columns on `users`/`lists`,
-resolved in `services/intervals.py` (`effective = entity_override if entity_override is not
-None else env_default`). **Fence:** do not reintroduce a global runtime-settings table.
+resolved in `services/intervals.py`. **Settings precedence**: interval overrides resolve via
+`or` — `effective = entity_override or env_default` — so a falsy override (NULL **or 0**)
+falls through to the env default; ONLY `flap_confirm_scrapes` resolves via `is None`, so a
+stored 0 is honored there (the API coerces 0→None; anti-flap treats threshold 0 like 1).
+(`services/intervals.py:10-41`) **Fence:** do not reintroduce a global runtime-settings table.
 tech-stack.md still describes the old table — wrong as of 2026-07, see the standing errata
 table in `watchlistarr-docs-and-writing`. Precedence details: `watchlistarr-config-and-flags`.
 
-### HTMX + Pico → React SPA (~30 hours after the MVP)
+### HTMX + Pico → React SPA (~12 hours after the MVP, same day)
 
 Docs (`28b09a5`, May 19) chose HTMX/Pico; the MVP (`554a808`) shipped it. `58c94ab` (May 20
 17:09) redid the UI as 5 English tabs; `434e250` + `72ff656` (May 20 evening) rebuilt it as a
@@ -393,7 +400,8 @@ Re-verify before trusting any entry after history-affecting operations:
 - Any cited commit: `git show <sha> --stat` (subject + touched files must match the story).
 - Tags/versions: `git ls-remote --tags origin` (13 tags v1.0.0–v1.5.2; none fetched locally).
 - Timeline dates: `git log --format='%h %ad %s' --date=short --reverse | head -20`.
-- Commit counts: `git rev-list --count HEAD` and `git rev-list --count --no-merges HEAD`.
+- Commit counts: `git rev-list --count 4439c17` and `git rev-list --count --no-merges 4439c17`
+  (counting `HEAD` includes post-anchor docs/skills commits).
 - Cooldown 33-minute window: `git show -s --format='%h %ad %s' 23fec33 c8991da`.
 - Dead migration pair: `ls alembic/versions/` (0007 and 0008 both present).
 - CHANGELOG discrepancy: `grep -n "introduced in v1.3.0" CHANGELOG.md`.

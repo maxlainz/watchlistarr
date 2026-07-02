@@ -1,6 +1,6 @@
 ---
 name: watchlistarr-research-frontier
-description: Ranked frontier bets for watchlistarr — where to invest next to make it the most reliable *arr list source ("boring excellence" = provable zero-flap, provable gentleness, restart-safe, crash-only) and to practice scraping resilience as a discipline (selector-drift early warning, loud degradation via a failure taxonomy, fixture contract tests). Also owns THE CLAIMS-EVIDENCE RULE (no public capability claim without a named in-repo test or command) and the external positioning section (name collision, honest differentiators). Use when choosing the next ambitious investment, when writing or reviewing README / release-note / docs feature claims, or when positioning the project against other list tools. NOT for executing hardening work now → `watchlistarr-hardening-campaign`; NOT for evidence-bar methodology or predict-before-run worksheets → `watchlistarr-research-methodology`.
+description: Ranked frontier bets for watchlistarr — where to invest next to make it the most reliable *arr list source ("boring excellence" = provable zero-flap, provable gentleness, restart-safe, crash-only) and to practice scraping resilience as a discipline (selector-drift early warning, loud degradation via a failure taxonomy, fixture contract tests). Also owns THE CLAIMS-EVIDENCE RULE (no public capability claim without a named in-repo test or command), the external positioning section (name collision, honest differentiators), and the project NON-GOALS - check here BEFORE designing any new source or consumer integration (Trakt, Plex, IMDb, Sonarr, other *arr apps) or any recommendation/curation feature; these are owner-rejected directions. Use when choosing the next ambitious investment, when asked to add a new source/integration, when writing or reviewing README / release-note / docs feature claims, or when positioning the project against other list tools. NOT for executing hardening work now → `watchlistarr-hardening-campaign`; NOT for evidence-bar methodology or predict-before-run worksheets → `watchlistarr-research-methodology`.
 ---
 
 # watchlistarr — research frontier
@@ -139,8 +139,10 @@ number: "watchlistarr never exceeds N requests to Letterboxd per minute, and her
 *instance* via a lock (`src/watchlistarr/services/letterboxd/client.py:15,46-47,63-71,77-83`,
 tested at `tests/unit/letterboxd/test_client.py:76`), but each scheduler job constructs its own
 client (`src/watchlistarr/scheduler.py:260,279,310`; onboarding too,
-`src/watchlistarr/services/onboarding.py:99,167`), so M concurrent jobs run at M× the intended
-rate. `watchlistarr-hardening-campaign` Track A owns *implementing* the shared budget; this bet
+`src/watchlistarr/services/onboarding.py:99,167`; plus ad-hoc clients at
+`src/watchlistarr/routes/api/v1.py:509` on user creation and in `scripts/backfill_imdb.py:28` /
+`scripts/backfill_ratings.py:29` — 6 sites in `src/` + 2 in `scripts/`), so M concurrent jobs
+run at M× the intended rate. `watchlistarr-hardening-campaign` Track A owns *implementing* the shared budget; this bet
 owns the **proof artifact**: request-log audit plus published numbers.
 
 **First three steps in this repo.**
@@ -182,7 +184,9 @@ list/watchlist/films pages, film pages, pagination blocks, RSS) loaded via
    per-parser report naming what broke. Note: CI does not lint `scripts/` — lint locally with
    the house command (see `watchlistarr-validation-and-qa`).
 3. Schedule it OUTSIDE default CI (manual `workflow_dispatch` or an owner-side cron) — never in
-   the per-push pipeline: CI must stay deterministic and must not hit live Letterboxd.
+   the per-push pipeline: CI must stay deterministic and must not hit live Letterboxd. Any edit
+   to `.github/workflows/` goes through the ci.yml self-change protocol in
+   `watchlistarr-change-control`.
 
 **You have a result when** `uv run python scripts/drift_check.py` exits 0 today, and — verified
 by feeding it a deliberately mangled saved page — exits non-zero naming the affected parser,
@@ -225,12 +229,14 @@ and tools either re-fetch everything or strand partial state until the next peri
 is the difference between "restart whenever" and "don't touch it".
 
 **This repo's asset.** Onboarding already audits every step individually via `with_scrape_audit`
-(`src/watchlistarr/services/onboarding.py:73-135`), boot marks orphaned RUNNING runs as errors
+(`_run_step`, `src/watchlistarr/services/onboarding.py:73-86`; `_initial_run` at `:89-146`),
+boot marks orphaned RUNNING runs as errors
 (`fail_interrupted_runs`, `src/watchlistarr/services/scrape/audit.py:17-37`, called at
 `src/watchlistarr/main.py:58`), each list carries `last_sync_status` (NEVER/SUCCESS/ERROR), and
 `sync_list_full` is an idempotent upsert in one transaction (`services/scrape/lists.py:60-105`) —
 re-running a finished list is harmless. The gap: `_initial_run` is a fire-and-forget asyncio
-task (`onboarding.py:147-156`); a restart kills it and nothing resumes the un-synced remainder.
+task (`schedule_initial_run`, `onboarding.py:147-157`); a restart kills it and nothing resumes
+the un-synced remainder.
 
 **First three steps in this repo.**
 1. Add a resume query to `onboarding.py`: users owning lists with `last_sync_status == NEVER`
@@ -300,7 +306,7 @@ before relying on any of them:
 |---|---|
 | Anti-flap counter + threshold + reset | `grep -n "pending_removal_count" src/watchlistarr/services/scrape/anti_flap.py src/watchlistarr/services/scrape/watchlist.py` |
 | Per-instance rate limit (2s) | `grep -n "MIN_INTERVAL_SECONDS\|asyncio.Lock" src/watchlistarr/services/letterboxd/client.py` |
-| One client per scheduler job (B2 gap) | `grep -n "LetterboxdClient(settings)" src/watchlistarr/scheduler.py src/watchlistarr/services/onboarding.py` |
+| One client per scheduler job (B2 gap; 6 sites in src/ + 2 in scripts/) | `grep -rn "LetterboxdClient(" src/ scripts/` |
 | Audit wrapper + boot orphan cleanup | `grep -n "def with_scrape_audit\|def fail_interrupted_runs" src/watchlistarr/services/scrape/audit.py && grep -n "fail_interrupted_runs" src/watchlistarr/main.py` |
 | `scrape_runs.error` free text, no kind column | `grep -n "error" src/watchlistarr/models/scrape_runs.py` |
 | WAL/busy_timeout pragmas | `grep -n "PRAGMA" src/watchlistarr/db.py` |

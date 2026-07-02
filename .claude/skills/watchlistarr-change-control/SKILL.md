@@ -1,6 +1,6 @@
 ---
 name: watchlistarr-change-control
-description: Change-control discipline for the watchlistarr repo — consult BEFORE any commit, push, merge, version bump, release cut, migration edit, or change to the Radarr-facing surface. Covers the branch model (work on dev, never commit to main, merge only on explicit request with a "Merge dev: <resumen>" summary message), Spanish commit messages, commit+push after every edit, the 5-step pre-push CI gate, the "Radarr payload is sacred" enforcement checklist (schemas/radarr.py, services/radarr.py, routes/api/radarr.py), what counts as a BREAKING change, the release procedure (double bump, uv lock before commit, annotated tags from main only), Alembic migration rules, and the ci.yml self-change protocol. NOT for running/debugging the CI steps or the test-suite map → use `watchlistarr-validation-and-qa`; NOT for Radarr contract internals or StevenLuParser behavior → use `radarr-integration-reference`; NOT for full incident histories → use `watchlistarr-failure-archaeology`; NOT for docker compose / QC-loop mechanics → use `watchlistarr-run-and-operate`; NOT for doc-language policy or the errata table → use `watchlistarr-docs-and-writing`.
+description: 'Change-control discipline for the watchlistarr repo — consult BEFORE any commit, push, merge, version bump, release cut, migration edit, or change to the Radarr-facing surface. Covers the branch model (work on dev, never commit to main, merge only on explicit request with a "Merge dev: <resumen>" summary message), Spanish commit messages, commit+push after every edit, the 5-step pre-push CI gate, the "Radarr payload is sacred" enforcement checklist (schemas/radarr.py, services/radarr.py, routes/api/radarr.py), what counts as a BREAKING change, the release procedure (double bump, uv lock before commit, annotated tags from main only), Alembic migration rules, and the ci.yml self-change protocol. NOT for running/debugging the CI steps or the test-suite map → use `watchlistarr-validation-and-qa`; NOT for Radarr contract internals or StevenLuParser behavior → use `radarr-integration-reference`; NOT for full incident histories → use `watchlistarr-failure-archaeology`; NOT for docker compose / QC-loop mechanics → use `watchlistarr-run-and-operate`; NOT for doc-language policy or the errata table → use `watchlistarr-docs-and-writing`.'
 ---
 
 # watchlistarr change control
@@ -39,8 +39,8 @@ Ground truth: `.claude/rules.md:5-9` plus the repo's actual git history.
 1. **All work happens on `dev`.** Never commit directly to `main` (`rules.md:5`).
 2. **Merge `dev` → `main` ONLY when the user explicitly asks.** No exceptions — not for "it's just
    docs", not for hotfixes, not because CI is green (`rules.md:7`).
-3. **Merge commit message format** (stable practice since v1.2.0; fullest example: merge commit
-   `5416a65`):
+3. **Merge commit message format** (observed stable practice since v1.2.0; fullest example: merge
+   commit `5416a65`):
    - Subject: `Merge dev: <resumen>` — Spanish, one line.
    - Body: enumerates **everything** new since the previous commit on `main`, not just the latest
      change. Build it from `git log --oneline main..dev` before merging.
@@ -57,12 +57,13 @@ git push origin main
 
 ## Commit discipline
 
-- **Language: Spanish.** Short, descriptive messages. Conventional prefixes (`feat:`, `fix:`,
-  `docs:`, `chore:`, `refactor:`, `ci:`, `test:`) are welcome but not mandatory (`rules.md:9`) —
-  they do feed the release-bump decision table, so prefer them.
+- **Language: Spanish.** Short, descriptive messages. Conventional prefixes are welcome but not
+  mandatory — `rules.md:9` lists `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`;
+  `versioning.md:20`'s bump table adds `ci:` and `test:`. They feed the release-bump decision
+  table, so prefer them.
 - **Commit + push after every code edit**, then rebuild the local dev container for manual QC
-  (`rules.md:6`, `CLAUDE.md`). Rebuild command and the QC-port caveat (the `:8088` port comes from
-  the owner's uncommitted `.env`; compose defaults to 8080) live in `watchlistarr-run-and-operate`.
+  (`rules.md:6`, `CLAUDE.md`). Rebuild command, port truth, and the `:8088` QC caveat live in
+  `watchlistarr-run-and-operate`.
 - The only fixed message format in the repo is the release commit: `chore(release): vX.Y.Z`.
 - Skills/docs are in English, but commit messages stay Spanish even for English-content commits.
 
@@ -125,9 +126,10 @@ Do ALL of these; skipping any one is a rule violation:
    change to a stable surface, and the Radarr endpoint + JSON shape are the first-listed stable
    surface, `versioning.md:9-12`).
 2. **Update `scripts/smoke.py` asserts in the SAME commit.** The Radarr asserts live at
-   `scripts/smoke.py:314-382`: item shape and `id == tmdb_id` (L318-332), `imdb_id` omission for a
+   `scripts/smoke.py:314-377`: item shape and `id == tmdb_id` (L318-332), `imdb_id` omission for a
    film without one (L326), 404 for unknown user and for disabled list (L366-371), ETag/304
-   round-trip (L374-377).
+   round-trip (L374-377). The adjacent legacy-UI dead-route 404 asserts (L379-382) are separate —
+   they are covered by the route-deletion coupling rule above, not by this checklist.
 3. **Update `tests/integration/test_radarr_routing.py`** — the integration suite that pins routing,
    404, and serialization behavior.
 4. **Get explicit user sign-off BEFORE merging to `main`.** State plainly in your report: "this
@@ -196,7 +198,9 @@ upgrades a fresh DB from zero (`smoke.py:398-401`) — so the migration chain is
 push, but only against SQLite.
 
 - **Any change under `src/watchlistarr/models/` → an autogenerated Alembic revision in the SAME
-  commit** (`workflows.md:24-27`). House convention is sequential zero-padded revision ids
+  commit.** (`workflows.md:24-26` gives the commands; the same-commit coupling is derived house
+  practice — every schema change in history ships with its revision.) House convention is
+  sequential zero-padded revision ids
   (`alembic/versions/0001_…` through `0009_…` as of 2026-07); match it with `--rev-id`:
 
   ```bash
@@ -263,7 +267,7 @@ Facts here drift with the repo. Re-verify before trusting (all from repo root):
 | Fact | Re-verify with |
 |---|---|
 | Branch/commit/merge rules | `sed -n '3,9p' .claude/rules.md` |
-| Merge-message practice (`Merge dev: <resumen>`) | `git log --merges --pretty='%h %s' main \| head` |
+| Merge-message practice (`Merge dev: <resumen>`) | `git log --merges --pretty='%h %s' origin/main 2>/dev/null \|\| git log --merges --pretty='%h %s' \| head` (single-branch clones lack a `main` ref) |
 | The 5 CI steps and their exact commands | `grep -n 'run: uv' .github/workflows/ci.yml` |
 | CI lints `src tests` only (scripts asymmetry) | `grep -n 'ruff' .github/workflows/ci.yml` |
 | Radarr routes + trailing slashes | `grep -n '@router.get' src/watchlistarr/routes/api/radarr.py` |

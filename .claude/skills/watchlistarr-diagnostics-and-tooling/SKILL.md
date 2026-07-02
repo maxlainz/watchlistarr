@@ -1,6 +1,6 @@
 ---
 name: watchlistarr-diagnostics-and-tooling
-description: Ready-made, read-only diagnostic scripts for a live watchlistarr instance plus sqlite3/curl inspection recipes. Use when you need to INSPECT state right now — check DB health after a crash or restore, find stuck RUNNING scrape_runs, verify the scheduler holds the jobs the DB implies and none are stale, explain why a specific film is (not) served by a custom list, diff what Radarr receives against what the DB says it should receive, count films missing imdb_id, probe ETag/304 behavior, or run safe read-only curl probes against /api/v1. Keywords - diagnose, inspect, probe, health check, stale job, stuck sync, payload diff, missing film, invisible to Radarr. NOT for symptom-to-fix decision trees (which branch to take next) → use `watchlistarr-debugging-playbook`. NOT for building reproductions, EXPLAIN QUERY PLAN, bisecting, or proving a hypothesis with evidence → use `watchlistarr-proof-and-analysis-toolkit`. NOT for the Radarr contract details themselves → use `radarr-integration-reference`.
+description: Ready-made, read-only diagnostic scripts for a live watchlistarr instance plus sqlite3/curl inspection recipes. Use when you need to INSPECT state right now — check DB health after a crash or restore, find stuck RUNNING scrape_runs, check the scheduler for orphan/stale jobs and a dead scheduler (the live API exposes only the next 5 jobs — full job presence cannot be proven), explain why a specific film is (not) served by a custom list, diff what Radarr receives against what the DB says it should receive, count films missing imdb_id, probe ETag/304 behavior, or run safe read-only curl probes against /api/v1. Keywords - diagnose, inspect, probe, health check, stale job, stuck sync, payload diff, missing film, invisible to Radarr. NOT for symptom-to-fix decision trees (which branch to take next) → use `watchlistarr-debugging-playbook`. NOT for building reproductions, EXPLAIN QUERY PLAN, bisecting, or proving a hypothesis with evidence → use `watchlistarr-proof-and-analysis-toolkit`. NOT for the Radarr contract details themselves → use `radarr-integration-reference`.
 ---
 
 # watchlistarr diagnostics and tooling
@@ -17,7 +17,7 @@ All scripts share the same conventions:
 | Interpreter | plain `python3` (3.12+), **no venv needed** — stdlib only, zero watchlistarr imports |
 | `--db PATH` | SQLite file, default `./data/watchlistarr.db` (the compose bind mount `./data:/data`) |
 | `--url BASE` | running instance, default `http://127.0.0.1:8080` |
-| Exit codes | `0` = OK · `1` = findings printed · `2` = cannot connect (DB missing/unreadable, or for diff_served also an unreachable `--url`) |
+| Exit codes | `0` = OK · `1` = findings printed · `2` = cannot run the analysis: DB missing/unreadable; diff_served: also unreachable `--url` or malformed `--endpoint`; explain_film: also unknown custom-list slug |
 | Output | sectioned `== [n] title ==` blocks ending in a numbered `Verdict` list of findings |
 
 > **Honest caveat**: these scripts are new and unexercised against a live instance — if a
@@ -236,7 +236,7 @@ automatically).
 | Fact | Re-verify with | On drift, update |
 |---|---|---|
 | Table/column names | `grep -n "mapped_column\|__tablename__" src/watchlistarr/models/*.py` | all four scripts + cheat-sheet |
-| Alembic head `0009` | `grep -h "^revision" alembic/versions/*.py \| sort \| tail -1` | `EXPECTED_ALEMBIC_HEAD` + `APP_TABLES` in `diag_db_health.py` |
+| Alembic head `0009` | `ls alembic/versions/ \| sort \| tail -1` (NOT the `grep "^revision"` pipeline — mixed quote styles make `sort` return `'0002'`) | `EXPECTED_ALEMBIC_HEAD` + `APP_TABLES` in `diag_db_health.py` |
 | Radarr routes | `grep -n "@router.get" src/watchlistarr/routes/api/radarr.py` | `diag_diff_served.py:classify_endpoint` |
 | Serve-time sort/limit semantics | `sed -n '17,56p' src/watchlistarr/services/radarr.py` | `diag_diff_served.py:expected_rows`, `diag_explain_film.py:served_order` |
 | RadarrItem keys / exclude_none / ETag | `cat src/watchlistarr/schemas/radarr.py; sed -n '59,66p' src/watchlistarr/services/radarr.py` | `diag_diff_served.py:ALLOWED_ITEM_KEYS` + [5] |

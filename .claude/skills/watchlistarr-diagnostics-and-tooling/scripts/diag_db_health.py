@@ -26,7 +26,10 @@ from pathlib import Path
 # Latest alembic revision id. Source of truth: the migration file in
 # alembic/versions/ whose `revision` value no other file lists as its
 # `down_revision`. Update this constant when a new migration lands:
-#   grep -h "^revision" alembic/versions/*.py | sort | tail -1
+#   ls alembic/versions/ | sort | tail -1
+# (Do NOT use `grep -h "^revision" ... | sort | tail -1`: files 0001/0002 use
+# single quotes and 0003+ double quotes, and `"` sorts before `'`, so that
+# pipeline wrongly returns '0002'.)
 EXPECTED_ALEMBIC_HEAD = "0009"  # 0009_custom_list_sources_polymorphic.py (as of 2026-07, v1.5.2)
 
 # All application tables as of migration 0009 (see src/watchlistarr/models/*.py).

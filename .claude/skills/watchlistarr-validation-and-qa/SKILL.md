@@ -76,7 +76,7 @@ Layout (mirrors `src/watchlistarr/`, per `.claude/rules.md:59`):
 tests/
   conftest.py            # DB/engine/session/app fixtures (real Alembic per test)
   fixtures/              # 8 static specimens: 7 .html + rss_feed.xml (trimmed real captures)
-  unit/                  # no DB, no HTTP (except test_healthz/test_client via TestClient/respx)
+  unit/                  # no DB, no HTTP (except test_healthz/test_client via TestClient/respx, and test_models.py which uses the real migrated DB)
     letterboxd/          # parser tests, fixture-driven; conftest.py = named fixture loaders
   integration/           # DB + service level + TestClient HTTP; conftest.py = letterboxd client
 ```
@@ -134,8 +134,8 @@ Snapshot (as of 2026-07, v1.5.2): **154 tests — 67 unit / 87 integration**.
   `letterboxd_client` is a **real `LetterboxdClient` with `min_interval_seconds=0`** (:23-29) —
   rate limiting disabled for speed, HTTP intercepted by respx.
 - **`tests/unit/letterboxd/conftest.py`**: 8 named fixtures, one per file in `tests/fixtures/`
-  (lists_index, watchlist_p1, pagination_block, pagination_single, film_page_movie,
-  film_page_tv, films_p1, rss_feed).
+  (8 files as of 2026-07 — `ls tests/fixtures/`; the what-each-is-a-specimen-of inventory table
+  lives in `letterboxd-scraping-reference`).
 - **Offline kill-switch (belt and braces)**: the `db_url` fixture exports
   `LETTERBOXD_OFFLINE=true`, and `LetterboxdClient.get` hard-raises `LetterboxdOfflineError` when
   set (src/watchlistarr/services/letterboxd/client.py:64-65). Any unmocked scrape in a DB test
@@ -309,7 +309,7 @@ trusting any of them:
 | No coverage threshold | `grep -rn "fail_under\|fail-under" pyproject.toml .github/` → expect empty |
 | Test counts per file | `grep -rc "def test_" tests/ \| grep -v ":0$" \| sort -t: -k2 -nr` |
 | `slow` marker still unused | `grep -rn "mark.slow" tests/ src/ scripts/` → expect empty |
-| Offline kill-switch | `grep -n "letterboxd_offline" src/watchlistarr/services/letterboxd/client.py tests/conftest.py` |
+| Offline kill-switch | `grep -ni "letterboxd_offline" src/watchlistarr/services/letterboxd/client.py tests/conftest.py` (case-insensitive: `tests/conftest.py:26` uses the uppercase env literal) |
 | Smoke assert inventory | `grep -n "_assert" scripts/smoke.py` |
 | Legacy-404 mirror in both places | `grep -n "lists-view" scripts/smoke.py tests/integration/test_ui_smoke.py` |
 | Untested-modules snapshot | heuristic command in §3, or the authoritative `--cov-report=term-missing` run |

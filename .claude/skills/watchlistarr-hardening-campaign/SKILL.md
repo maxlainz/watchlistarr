@@ -49,8 +49,8 @@ the arrow. Nothing in this file is implemented yet unless a phase says "already 
 **Instance-dependent values.** Commands below use `$BASE` and the SQLite file:
 
 ```bash
-BASE="http://localhost:${HTTP_PORT:-8080}"   # owner's dev QC uses :8088 via uncommitted .env; compose default 8080
-DB="data/watchlistarr.db"                    # default DATABASE_URL; inside the container it is /app/data/watchlistarr.db
+BASE="http://localhost:${HTTP_PORT:-8080}"   # compose default 8080; the :8088 QC caveat → watchlistarr-run-and-operate
+DB="data/watchlistarr.db"                    # default DATABASE_URL; inside the container it is /data/watchlistarr.db (Dockerfile:15,20)
 ```
 
 Derive yours: `grep -h HTTP_PORT .env docker-compose*.yml 2>/dev/null` and
@@ -161,8 +161,8 @@ host, so all client instances serialize through one 2s-spaced pipeline.
 Derivation obligations BEFORE writing code:
 - State the max concurrent Letterboxd-hitting tasks from A0.3 (+ onboarding/toggle/add-user tasks,
   sites 4–6) for the owner's instance. If it is provably ≤ 1, A1 buys nothing — stop and pick A3.
-- Design around the test seams: `tests/unit/letterboxd/test_client.py:67,80` and
-  `tests/integration/conftest.py:25` construct clients with `min_interval_seconds=0`. A global
+- Design around the test seams: `tests/unit/letterboxd/test_client.py:67` (`0`) and `:80` (`0.05`),
+  and `tests/integration/conftest.py:25` (`0`) construct clients with tiny `min_interval_seconds`. A global
   limiter MUST still honor the per-instance override (e.g. global state keyed per event loop with
   injectable interval), or the whole suite slows to 2s/request and CI times out.
 - Prove it with a test: extend `tests/integration/test_scrape_concurrency.py` (exists; currently
@@ -243,10 +243,15 @@ grep -rn "enabled" src/watchlistarr/routes/api/v1.py | grep -vi rotation
 Expect only reads: serialization (`v1.py:164,299`), dashboard counts (`v1.py:128,176,379,382`), and
 the *raw-list* toggle (`v1.py:569-578` — writes `lists.enabled`, not `custom_lists.enabled`).
 
+This is a **candidate change**. Classification: a 404-semantics change to the Radarr surface is
+**breaking by default** per `watchlistarr-change-control` and needs **explicit owner sign-off**
+before the bump decision is made. The blast-radius derivation below is the case you PRESENT at
+sign-off (arguing for a lesser bump) — it is NOT a pre-granted exception.
+
 **Blast-radius derivation (the worked example — copy this reasoning style for every "is it
-breaking?" decision):** default is `True`; there is no setter in any API route or UI form; therefore
-no reachable state has `enabled=False` unless someone hand-edited the DB. Wiring the 404 changes
-behavior for zero API-reachable states → **safe minor, not breaking** — *conditional on verifying
+breaking?" argument you bring to sign-off):** default is `True`; there is no setter in any API
+route or UI form; therefore no reachable state has `enabled=False` unless someone hand-edited the
+DB — wiring the 404 changes behavior for zero API-reachable states, *conditional on verifying
 the live instance*:
 
 ```bash
@@ -254,12 +259,13 @@ sqlite3 "$DB" "SELECT COUNT(*) FROM custom_lists WHERE enabled=0;"
 ```
 
 Expect **0 rows with count 0**. Instance-dependent: a nonzero count means a hand-disabled list that
-would start 404ing to Radarr the moment you ship — get owner sign-off first.
+would start 404ing to Radarr the moment you ship — the argument for a lesser bump collapses.
 
-Decision gate: (a) wire the 404 into `radarr.py:39-51` mirroring `radarr.py:100` (minor; touches
-404 semantics of the Radarr surface → payload-adjacent → **add a disabled-custom-list 404 assert to
-`scripts/smoke.py` in the same commit**), and optionally (b) add a toggle endpoint + UI so the flag
-is settable (separate commit; see `watchlistarr-config-and-flags` for what is UI-settable today).
+Decision gate: (a) wire the 404 into `radarr.py:39-51` mirroring `radarr.py:100` (touches 404
+semantics of the Radarr surface → breaking by default, owner sign-off decides the bump —
+Promotion protocol step 3; **add a disabled-custom-list 404 assert to `scripts/smoke.py` in the
+same commit** either way), and optionally (b) add a toggle endpoint + UI so the flag is settable
+(separate commit; see `watchlistarr-config-and-flags` for what is UI-settable today).
 Shipping (a) without (b) is acceptable — the flag stays DB-edit-only but at least it is honored.
 
 ### B2 — Selector-drift tripwires (empty-scrape guard)
@@ -341,7 +347,7 @@ B = 1 if the ad-hoc /films/ backstop fires (first sync: 0 — no existing items 
 ```
 
 Dominated by N: a 1000-film watchlist ≈ 2000s ≈ **33 minutes**. Onboarding
-(`services/onboarding.py:89-137`) full-syncs **every discovered list including the watchlist,
+(`services/onboarding.py:89-146`) full-syncs **every discovered list including the watchlist,
 sequentially, through one client** — total first-sync time is the sum over all lists (deduped by the
 resolver cache, next paragraph).
 
@@ -478,22 +484,24 @@ commit as its lockfile).
 Every track's change lands through `watchlistarr-change-control` — no exceptions, no shortcuts:
 
 1. Branch `dev` only; merge to `main` only when the owner explicitly asks.
-2. Before push, run the 5 CI steps locally, verbatim (canonical formula, `.github/workflows/ci.yml:35-49`):
+2. Before push, run the house pre-push gate locally (`.claude/rules.md:21-29` — note it lints
+   `scripts` too, which CI does NOT; campaign work creates new `scripts/` files, so never use the
+   narrower CI scope locally; the full local/CI asymmetry table is in `watchlistarr-validation-and-qa`):
 
 ```bash
 uv sync --frozen
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run mypy src
-uv run pytest --cov=src/watchlistarr --cov-report=term
+uv run ruff check src tests scripts && \
+uv run ruff format --check src tests scripts && \
+uv run mypy src && \
+uv run pytest -q && \
 uv run python scripts/smoke.py
 ```
 
-   (House rule adds `scripts` to both ruff invocations locally; CI does not lint scripts — known
-   asymmetry, see the errata table in `watchlistarr-docs-and-writing`.)
 3. If the change is payload-adjacent (anything touching served JSON, Radarr URL surface, or 404
    semantics — Track B1 qualifies): update `scripts/smoke.py` asserts **in the same commit**;
-   payload/URL/404 semantic changes are breaking → major bump.
+   payload/URL/404 semantic changes are breaking → major bump by default. Any argument for a
+   lesser bump (e.g. B1's blast-radius derivation) requires explicit owner sign-off via
+   `watchlistarr-change-control` BEFORE merging.
 4. Commit message in **Spanish**, conventional-commit typed (fix → patch, feat/behavior → minor,
    breaking → major; details in `watchlistarr-change-control`).
 5. After each commit: push, then rebuild the local QC copy and eyeball it
@@ -524,7 +532,7 @@ age are marked instance-dependent with their derivation command. Re-verify befor
 | `max_instances=1` per job; `trigger_now` bypass | `grep -n "max_instances\|await job.func" src/watchlistarr/scheduler.py` |
 | No empty-scrape guard; SUCCESS stamped after 0-item full sync | read `src/watchlistarr/services/scrape/lists.py:60-105` |
 | Anti-flap immediate-delete branches vs counter | `grep -n "session.delete\|pending_removal_count" src/watchlistarr/services/scrape/anti_flap.py` |
-| `custom_lists.enabled` unread by Radarr route | `grep -n "enabled" src/watchlistarr/routes/api/radarr.py` (expect hits only for raw lists/watchlist) |
+| `custom_lists.enabled` unread by Radarr route | `grep -n "enabled" src/watchlistarr/routes/api/radarr.py` (expect exactly :75,:100 — raw routes only; none in :39-51) |
 | Resolver dedup + cache condition | `grep -n "fromkeys\|imdb_id is not None" src/watchlistarr/services/scrape/film_resolver.py` |
 | `parse_total_pages` silent 1 | `grep -n "return 1" src/watchlistarr/services/letterboxd/lists.py` |
 | hypothesis not a dep | `grep -n hypothesis pyproject.toml` (expect no output) |
