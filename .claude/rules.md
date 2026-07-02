@@ -10,8 +10,9 @@
 
 ## CI (GitHub Actions, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
 
-CI corre 5 steps en `qa`: `ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`. Antes de pushear, ejecutar **todos** localmente — un fallo en cualquiera bloquea el merge.
+CI corre 5 steps en `qa`: `ruff check`, `ruff format --check`, `mypy`, `pytest`, `scripts/smoke.py`. Antes de pushear, ejecutar **todos** localmente — un fallo en cualquiera bloquea el merge. El comando único de abajo es el gate de la casa, no una réplica exacta del CI (ver primer bullet).
 
+- **Local ≠ CI, a propósito**: CI solo linta y format-checkea `src tests` (`ci.yml:35,38`); el comando de la casa añade `scripts` — gate deliberadamente más estricto en local (un fallo de lint solo-en-`scripts` te bloquea aquí pero pasaría CI). El pytest de CI además corre con `--cov=src/watchlistarr --cov-report=term` (mismos tests; coverage informativo, sin umbral).
 - **`ruff format --check`** se rompe en silencio cuando añades código nuevo sin formatear. Correr `uv run ruff format src tests scripts` antes del commit.
 - **`scripts/smoke.py`** importa modelos y golpea endpoints reales con un server real. Si renombras un modelo, cambias el esquema de la DB, alteras una ruta HTTP o cambias la forma del JSON, actualízalo en el mismo commit. Es la única red de seguridad end-to-end del CI.
 - **Cualquier cambio en `pyproject.toml`** (deps añadidas/quitadas) requiere `uv lock` + commitear `uv.lock`. CI usa `--frozen` y falla si no concuerdan.
@@ -45,7 +46,7 @@ Cortamos releases con tags `vX.Y.Z` desde `main`. SemVer + Conventional Commits 
 - **`mypy --strict`** en CI. Sin `Any` salvo en fronteras (HTML scraping, JSON de Radarr) — y entonces convertir a tipos propios cuanto antes.
 - **Pydantic v2** para schemas de I/O (API request/response, settings, structs de scraping). No para modelos de DB (esos van con SQLAlchemy `Mapped[T]`).
 - **`ruff`** como linter + formatter (sustituye black/isort/flake8). Config en `pyproject.toml`.
-- Configuración (puertos, paths, intervalos, credenciales) siempre vía env vars (`Settings` de Pydantic) o tabla `settings`. Nunca hardcoded.
+- Configuración (puertos, paths, intervalos, credenciales) siempre vía env vars (`Settings` de Pydantic) o columnas de override por entidad (`users`/`lists`, resueltas en `services/intervals.py`). Nunca hardcoded. (La tabla `settings` se retiró en la migración 0002.)
 - Detalles de versiones, layout y comandos: [`tech-stack.md`](tech-stack.md).
 
 ## Estilo de código
@@ -75,7 +76,7 @@ Cortamos releases con tags `vX.Y.Z` desde `main`. SemVer + Conventional Commits 
 
 Letterboxd no ofrece API pública estable; el proyecto entero se apoya en scraping del HTML público y el RSS de usuario. Reglas operativas permanentes:
 
-- **Rate limit**: una request cada X segundos como mínimo (ajustar empíricamente, empezar conservador con 2-3 s). Nunca paralelizar peticiones a la misma cuenta de Letterboxd.
+- **Rate limit**: una request cada X segundos como mínimo (ajustar empíricamente, empezar conservador con 2-3 s). Nunca paralelizar peticiones a la misma cuenta de Letterboxd. Estado real: hoy el límite es **por instancia de `LetterboxdClient`** y cada job/onboarding crea su propio cliente (6 sitios en `src/`), así que jobs concurrentes del mismo user sí pueden golpear Letterboxd en paralelo — la regla sigue vigente como ley, pero aún no está aplicada globalmente. Candidato (no implementado): limitador global por dominio.
 - **User-Agent**: identificarse con `watchlistarr/<version> (+<repo-url>)`. No suplantar navegador.
 - **Caché**: cachear respuestas durante el ciclo de scraping. Si una lista no ha cambiado (mismo número de items, mismo orden) no re-scrapear sus detalles.
 - **Robustez al cambio de HTML**: si un selector falla, fallar ruidosamente y loggear suficiente contexto para reparar el selector. No intentar "adivinar" estructura alternativa.
