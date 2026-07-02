@@ -33,7 +33,7 @@ Letterboxd (HTML + RSS, multi-user)
 ## Componentes objetivo
 
 ### Sync workers (per-user, configurables, transaccionales)
-- **Scraper de listas**: dos modos (incremental + full). Incremental detecta adiciones en O(2) fetches usando `/by/added-earliest/`. Full recorre toda la lista para detectar eliminaciones y reordenamientos. Detalles: [`letterboxd-lists.md`](letterboxd-lists.md), [`sync-strategy.md`](sync-strategy.md).
+- **Scraper de listas**: dos modos (incremental + full). Incremental detecta adiciones en O(2) fetches de páginas de lista (página 1 + última página de `/by/added-earliest/`); cada slug **nuevo** cuesta además un fetch de su ficha `/film/{slug}/` vía `resolve_films`. Full recorre toda la lista para detectar eliminaciones y reordenamientos. Detalles: [`letterboxd-lists.md`](letterboxd-lists.md), [`sync-strategy.md`](sync-strategy.md).
 - **RSS watcher**: polling al RSS del usuario, captura eventos de visionado en caliente. Dedup por `<guid>`. Detalles: [`letterboxd-rss.md`](letterboxd-rss.md).
 - **Films-backstop**: scrape periódico de `/{user}/films/` página 1 (≈72 últimos vistos) para rellenar gaps del RSS. También se dispara ad-hoc durante el anti-flap.
 - **Discovery**: scrape periódico de `/{user}/lists/` para detectar listas nuevas o eliminadas. Las nuevas entran como `enabled=false`; el user las activa desde la UI.
@@ -45,11 +45,11 @@ Letterboxd (HTML + RSS, multi-user)
 - Resolución detallada en [`data-model.md`](data-model.md#custom-lists-resolución).
 
 ### Rotation worker
-- Independiente del scraping, no toca la red. Recorre custom lists con rotación activada cada `ROTATION_TICK_INTERVAL` (default 1 h) y aplica FIFO temporal: saca las que llevan más tiempo servidas, mete random del pool elegible. Detalles: [`sync-strategy.md`](sync-strategy.md).
+- Independiente del scraping, no toca la red. Recorre custom lists con rotación activada cada `ROTATION_TICK_INTERVAL` (default 1 h) y aplica FIFO temporal: saca las que llevan más tiempo servidas (`served_since` más antiguo) y mete `rotation_batch_size` items del pool elegible **según el `sort_order` de la custom list** (`_choose_from_pool` en `services/custom_lists.py`: `rating_desc` = top por rating, `letterboxd`/`reverse` = posición en la fuente; random solo con `sort_order=random`). Detalles: [`sync-strategy.md`](sync-strategy.md).
 
 ### DB interna
 - Esquema canónico en [`data-model.md`](data-model.md). Multi-user nativo, identidad por `tmdb_id`.
-- Motor TBD (SQLite probable).
+- Motor: SQLite (decidido) — un archivo en el volumen `/data`, pragmas WAL + `busy_timeout` en `db.py`.
 
 ### API a Radarr
 - Endpoints HTTP que devuelven el array JSON de Custom List leyendo desde la DB. Detalles del formato: [`radarr-custom-list.md`](radarr-custom-list.md).
@@ -88,10 +88,10 @@ Los cambios de stack se documentan aquí cuando se tomen — `tech-stack.md` es 
   - **Runtime**: `python:3.12-slim`, copia `.venv` + `src/` + `alembic/`.
 - Tamaño esperado ~150–180 MB.
 - Un solo proceso (`uvicorn watchlistarr.main:app`) con APScheduler embebido. Sin supervisord.
-- Volumen `/data` para el archivo SQLite (`DATABASE_URL=sqlite+aiosqlite:///data/watchlistarr.db`).
-- Healthcheck: `GET /healthz` → 200 si la DB es accesible.
+- Volumen `/data` para el archivo SQLite (`DATABASE_URL=sqlite+aiosqlite:////data/watchlistarr.db` — **4 slashes**, ruta absoluta; así lo fija el `Dockerfile`).
+- Healthcheck: `GET /healthz` → 200 si la DB es accesible (vía python stdlib; no hay `curl` en la imagen).
 - Variables de entorno: ver [`workflows.md`](workflows.md).
-- Los users de Letterboxd se añaden vía UI, **no** por env (multi-user). Primer arranque presenta el wizard.
+- Los users de Letterboxd se añaden vía UI, **no** por env (multi-user). No hay wizard de primer arranque: la SPA carga el Dashboard y la pestaña Users muestra un empty state con el formulario de añadir user. Candidato (no implementado): wizard de onboarding.
 - Detalles del Dockerfile y del wiring de procesos: [`tech-stack.md`](tech-stack.md).
 
 ## Integración con Radarr
