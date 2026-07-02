@@ -6,6 +6,28 @@ and the project uses [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Skill library under `.claude/skills/`: 16 operational runbooks (in English)
+  covering change control, debugging playbooks, incident archaeology,
+  architecture invariants, Letterboxd scraping and Radarr integration
+  references, configuration, build/environment, operations, read-only
+  diagnostic scripts, validation/QA, documentation policy with a standing
+  errata table, a four-track hardening campaign, proof-and-analysis recipes,
+  and research frontier/methodology guides.
+
+### Docs
+- Documentation audit: 45 verified doc/code disagreements fixed across
+  `CLAUDE.md`, `.claude/*.md`, `README.md` and `.env.example` — phantom
+  features rewritten to describe today's behavior, real Radarr URLs and
+  scheduler job ids, honest CI/local asymmetries, port and healthcheck truth.
+- `CLAUDE.md` upgraded into the documentation router: reading order,
+  task-to-skill routing table, and the same-commit maintenance rule for
+  skill-guarded facts.
+- README: version pin example updated to 1.5.2; the troubleshooting tip now
+  describes the real force-refresh mechanism (toggle the list off and on).
+- `.env.example` no longer pins an outdated `USER_AGENT` and no longer claims
+  env frequencies are editable from the GUI.
+
 ## [1.5.2] - 2026-06-11
 
 ### Added
