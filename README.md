@@ -55,7 +55,7 @@ docker run -d \
 
 Open `http://localhost:8080` in your browser. That's it — everything else is set up from the web UI.
 
-> `:latest` always tracks the newest release. To pin a version, replace it with e.g. `:1.5.1` — available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags). The same image is also published to GitHub Container Registry: `ghcr.io/maxlainz/watchlistarr`.
+> `:latest` always tracks the newest release. To pin a version, replace it with e.g. `:1.5.2` — available tags on [Docker Hub](https://hub.docker.com/r/maxlainz/watchlistarr/tags). The same image is also published to GitHub Container Registry: `ghcr.io/maxlainz/watchlistarr`.
 
 ## First steps
 
@@ -109,7 +109,7 @@ All your data is a single file: `watchlistarr.db` inside the folder you mapped t
 
 - **Container won't start** — `docker compose logs watchlistarr`. Usually a typo in an environment variable; durations must look like `15m`, `1h`, `7d`.
 - **Radarr's Test button fails** — open the URL in your browser first: you should see a list in brackets (even an empty `[]` is fine). Don't forget the trailing slash.
-- **Radarr imports nothing** — check the list's sync status in the watchlistarr UI; you can force a refresh from the list's ⚙ menu.
+- **Radarr imports nothing** — check the list's sync status in the watchlistarr UI; toggling the list off and back on forces an immediate full sync.
 - **Errors mentioning the database** — check that the folder you mapped to `/data` exists and is writable.
 - **Letterboxd errors in the Activity tab** — you may be syncing too often; increase the interval on the noisiest lists.
 - **Found a bug?** — [open an issue](https://github.com/maxlainz/watchlistarr/issues).
