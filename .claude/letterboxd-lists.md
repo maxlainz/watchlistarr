@@ -6,7 +6,7 @@ Doc hermano: [`letterboxd-rss.md`](letterboxd-rss.md) cubre el otro extremo (eve
 
 ## Modelo de fuentes desde un único username
 
-Input de configuración: `LETTERBOXD_USER` (slug del perfil, no el display name).
+Input de configuración: el username (slug del perfil, no el display name), añadido por user desde la UI (`POST /api/v1/users`). Multi-user: no hay env var — cada user se registra por separado.
 
 Descubrimiento automático:
 
@@ -17,7 +17,7 @@ Descubrimiento automático:
 | 3 | `GET /{user}/watchlist/` + paginación | Fuente especial siempre disponible si el perfil es público (no aparece en `/lists/`) |
 | 4 | Por cada slug de film: `GET /film/{slug}/` | Resolver TMDB ID |
 
-La UI ofrece el catálogo descubierto y deja al usuario elegir cuáles activar y con qué políticas (sort, max items, rotación).
+La UI ofrece el catálogo descubierto y deja al usuario elegir cuáles activar (toggle on/off). Sort, max items y rotación no son propiedades de estas fuentes crudas: se configuran en custom lists multi-source (`/lists/<slug>/`).
 
 ## Anti-bot, robots.txt y rate limit
 
@@ -93,12 +93,12 @@ Ejemplo verbatim (esqueleto, sin las 5 posterítems internas):
 
 **Paginación**: mismo patrón `/{user}/lists/page/N/`. Si no aparece bloque `<div class="pagination">` → página única.
 
-**Limitación: listas privadas**. No aparecen en `/lists/` para visitantes no autenticados. Si el usuario tiene listas privadas que quiere sincronizar, la UI debe permitir pegar la URL manualmente como fallback.
+**Limitación: listas privadas**. No aparecen en `/lists/` para visitantes no autenticados — hoy simplemente quedan fuera del descubrimiento y no se sincronizan. Candidato (no implementado): permitir pegar la URL manualmente en la UI como fallback.
 
 ## Página `/{user}/watchlist/` — watchlist personal
 
 - **No aparece en `/lists/`**. Es un concepto separado en la UI de Letterboxd (`js-page-watchlist` vs `js-page-lists`).
-- watchlistarr la trata como una **fuente especial fija**: fila propia en la tabla `lists` con `type='watchlist'`, no descubierta dinámicamente.
+- watchlistarr la trata como una **fuente especial fija**: fila propia en la tabla `lists` con `source_type='watchlist'` (enum `source_type_enum`), no descubierta dinámicamente.
 - Misma estructura de grid que las listas regulares (ver siguiente sección).
 - 28 items por página, paginación `/page/N/`.
 
@@ -236,17 +236,17 @@ Uso operacional: el `films-backstop` corre con frecuencia `FILMS_BACKSTOP_INTERV
 2. **Descubrimiento de listas** (periódico, ej. 1×/día):
    - `GET /{user}/lists/` (+ paginación si aplica).
    - Para cada `<article class="list-summary">`: upsert en `lists` con `(letterboxd_id, slug, name, film_count)`.
-   - Watchlist: fila fija con `type='watchlist'`, no descubierta.
+   - Watchlist: fila fija con `source_type='watchlist'`, no descubierta.
 3. **Sync de items por lista** (periódico, intervalo configurable, ej. 1-2 h):
    - Para cada lista habilitada por el usuario:
      - Página 1 → detectar paginación → iterar `1..N` secuencialmente.
      - Por cada página: extraer slugs en orden, upsert en `list_items`.
    - Por cada slug nuevo (sin fila en `films`): fetchear `/film/{slug}/`, extraer TMDB ID, persistir.
-4. **Servir a Radarr**: cuando llega `GET /list/{list_id}`, leer items de DB, aplicar políticas (sort / max_items / exclusión de vistos según RSS), devolver JSON en el formato de [`radarr-custom-list.md`](radarr-custom-list.md).
+4. **Servir a Radarr**: cuando llega `GET /<user>/<slug>/` o `GET /<user>/watchlist/`, leer los items de DB en orden `position` y devolverlos tal cual — sin sort configurable, sin `max_items`, sin exclusión de vistos (esas políticas viven en las custom lists `/lists/<slug>/`) — en el formato de [`radarr-custom-list.md`](radarr-custom-list.md).
 
 ## Edge cases
 
-- **Lista privada**: no aparece en `/lists/`. La UI debe permitir pegar URL manual como fallback.
+- **Lista privada**: no aparece en `/lists/` — queda fuera del descubrimiento y no se sincroniza. Candidato (no implementado): pegar URL manual en la UI como fallback.
 - **Lista borrada o slug cambiado**: `/list/{slug}/` devuelve 404 → marcar lista en error, **no** borrar los items previos.
 - **Slug que ya no existe en `/film/{slug}/`**: logear, no crashear, registrar error por slug.
 - **TV shows** (`data-tmdb-type="tv"`): ignorar — Radarr es solo películas.

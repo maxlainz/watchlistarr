@@ -136,22 +136,23 @@ Letterboxd expone el IMDb ID en cada ficha de film como link "More at IMDb":
 ## Headers, caché y polling
 
 - Radarr **no envía** `If-None-Match` ni `If-Modified-Since` en versiones actuales (verificar empíricamente con cada release que probemos).
-- Aun así, watchlistarr debería **exponer `ETag`** y respetar `If-None-Match`: cuesta poco y deja el camino preparado si Radarr lo implementa.
+- Aun así, watchlistarr **expone `ETag`** (weak, `W/"<sha1 del payload>"`) y responde `304 Not Modified` a `If-None-Match` — `compute_etag` en `src/watchlistarr/services/radarr.py` + `_respond` en `src/watchlistarr/routes/api/radarr.py`; `scripts/smoke.py` lo verifica. Cuesta poco y deja el camino preparado si Radarr lo implementa.
 - La frecuencia de polling la fija el usuario en Radarr. watchlistarr sirve siempre desde la DB (el scraping a Letterboxd corre en background con su propio scheduler), así que cada GET es barato.
 
-## Filtros aplicados antes de servir
+## Políticas al servir: raw vs custom
 
-Cuando llega un `GET /list/<list_id>`, watchlistarr aplica sobre los items en DB:
+Las **listas crudas** (`/<user>/<slug>/` y `/<user>/watchlist/`) se sirven tal cual: todos los items en DB, **sin filtrar y sin cap**, ordenados por `position` (el orden de Letterboxd) — `serialize_list` en `src/watchlistarr/services/radarr.py`.
 
-1. **Sort order** configurado para la lista (`letterboxd` / `random` / `reverse`).
-2. **Límite** `max_items` configurado para la lista.
-3. **Exclusión de vistas** si la lista tiene rotación activada (cruzando con la tabla de "watched" alimentada por el RSS watcher).
+Sort order, `max_items`, filtros, exclusión de watchers y rotación existen **solo en custom lists**, y se aplican al **materializar** `custom_list_items` (guardar el editor, recálculo, rotation worker), no al llegar el GET. Lo único que hace `serialize_custom_list` en serve-time:
+
+1. Ordenar por `position` materializada — **salvo** `sort_order=RATING_DESC` sin snapshot (`snapshot_interval=NULL`), que re-ordena por `letterboxd_avg_rating` al servir (rating fresco sin esperar recálculo; con snapshot el orden queda congelado en `position`).
+2. Aplicar `LIMIT max_items` si está definido.
 
 El resultado se serializa al formato de arriba y se devuelve.
 
 ## Múltiples listas
 
-Una Custom List en Radarr ↔ una URL en watchlistarr ↔ un `list_id`. El usuario puede registrar N listas distintas en Radarr apuntando todas al mismo host watchlistarr; el `list_id` en el path las distingue.
+Una Import List en Radarr ↔ una URL en watchlistarr. El usuario puede registrar N entradas en Radarr apuntando todas al mismo host watchlistarr; el path las distingue según las tres rutas de "URL routing": `/<user>/<slug>/`, `/<user>/watchlist/` y `/lists/<slug>/`.
 
 ## Referencias
 
