@@ -1,13 +1,13 @@
 ---
 name: watchlistarr-build-and-env
-description: Toolchain, build, and local environment for watchlistarr — fresh-clone setup with uv, Python 3.12 floor, .env pitfalls (4-slash vs 3-slash DATABASE_URL, pinned USER_AGENT), dependency/lockfile discipline (uv lock, --frozen), Alembic migration chain 0001-0009 and how migrations actually run (in-app at boot), Dockerfile anatomy as coded (stages, python-urllib healthcheck, no curl), docker-compose prod vs dev port truth, CI image publishing (DockerHub + GHCR tag matrix), and the no-build-step vendored frontend. Use when setting up a dev environment, adding/upgrading a dependency, writing a migration, editing the Dockerfile or compose files, or when uv sync/alembic/docker build fails. NOT for running/operating the app or QC loops → watchlistarr-run-and-operate; NOT for CI test steps or smoke.py → watchlistarr-validation-and-qa.
+description: Toolchain, build, and local environment for watchlistarr — fresh-clone setup with uv, Python 3.12 floor, .env pitfalls (4-slash vs 3-slash DATABASE_URL; legacy pinned USER_AGENT in pre-2026-07 .env copies), dependency/lockfile discipline (uv lock, --frozen), Alembic migration chain 0001-0009 and how migrations actually run (in-app at boot), Dockerfile anatomy as coded (stages, python-urllib healthcheck, no curl), docker-compose prod vs dev port truth, CI image publishing (DockerHub + GHCR tag matrix), and the no-build-step vendored frontend. Use when setting up a dev environment, adding/upgrading a dependency, writing a migration, editing the Dockerfile or compose files, or when uv sync/alembic/docker build fails. NOT for running/operating the app or QC loops → watchlistarr-run-and-operate; NOT for CI test steps or smoke.py → watchlistarr-validation-and-qa.
 ---
 
 # watchlistarr — build, toolchain, and local environment
 
-Ground truth as of 2026-07, v1.5.2 (HEAD `4439c17`). Code beats docs: `tech-stack.md` carries a
-stale Dockerfile and a fictional `settings` table — see the standing errata table in
-`watchlistarr-docs-and-writing` before trusting any doc claim in this area.
+Ground truth as of 2026-07, v1.5.2 (HEAD `4439c17`). Code beats docs, always. (`tech-stack.md`
+used to carry a stale Dockerfile draft and a fictional `settings` table — fixed 2026-07-02,
+formerly E4-E13 in `watchlistarr-docs-and-writing`; it now matches the code.)
 
 ## When to use
 
@@ -37,18 +37,21 @@ from the repo root.
 cp .env.example .env
 ```
 
-Then fix two known traps in the copied `.env` BEFORE first run:
+Then fix one live trap in the copied `.env` BEFORE first run (plus one legacy check if you are
+reusing an old `.env`):
 
-1. **`DATABASE_URL`** — `.env.example:6` ships the Docker value
+1. **`DATABASE_URL`** (live) — `.env.example:6` ships the Docker value
    `sqlite+aiosqlite:////data/watchlistarr.db` (4 slashes = absolute path `/data/...`, which does
    not exist on your host). For local dev either:
    - change it to the 3-slash relative form `sqlite+aiosqlite:///data/watchlistarr.db` and
      `mkdir -p data` (SQLite creates the file, never the directory; `data/` is gitignored), or
    - delete the line entirely — the code default (`src/watchlistarr/config.py:45`) is already the
      3-slash form; you still need `mkdir -p data`.
-2. **`USER_AGENT`** — `.env.example:7` pins `watchlistarr/1.0.0`. The real default derives from
-   `__version__` (`config.py:46`), currently 1.5.2. **Delete the line**; keeping it re-pins the
-   scraping User-Agent at 1.0.0.
+2. **`USER_AGENT`** (legacy — pre-2026-07 copies only) — `.env.example` used to pin
+   `watchlistarr/1.0.0` (fixed 2026-07-02; the line is now a commented `x.y.z` example, so fresh
+   copies are safe). The real default derives from `__version__` (`config.py:46`), currently 1.5.2.
+   If your `.env` predates 2026-07 or sets `USER_AGENT` at all, **delete the line**; keeping a
+   pinned value freezes the scraping User-Agent at that old version.
 
 ```bash
 # 2. Install deps + the project (editable) into ./.venv; uv fetches Python 3.12 if missing
@@ -120,7 +123,7 @@ ships in the SAME commit as the model change) → `watchlistarr-change-control`.
 | Rev | File | What it did |
 |---|---|---|
 | 0001 | `0001_initial.py` | Full initial schema: films, scrape_runs, **settings**, users, lists, viewing_logs, watched_films, list_items, sublists, sublist_items. |
-| 0002 | `0002_settings_per_entity.py` | **Dropped the `settings` table** (any doc describing it is stale); added nullable per-entity interval override columns to `lists` (incr/full intervals, flap_confirm_scrapes) and `users` (rss/watchlist-incr/watchlist-full/films-backstop/discovery intervals). |
+| 0002 | `0002_settings_per_entity.py` | **Dropped the `settings` table** (the `tech-stack.md` phantom that kept describing it was fixed 2026-07-02; E4); added nullable per-entity interval override columns to `lists` (incr/full intervals, flap_confirm_scrapes) and `users` (rss/watchlist-incr/watchlist-full/films-backstop/discovery intervals). |
 | 0003 | `0003_custom_lists_multisource.py` | Redesigned sublists → `custom_lists` + `custom_list_items` + `custom_list_sources` (include/subtract roles) + `custom_list_excluded_watchers`, with in-place data migration; downgrade raises `NotImplementedError`. |
 | 0004 | `0004_films_imdb_id.py` | Added `films.imdb_id` (nullable, partial unique index) because Radarr's StevenLuParser only reads title + imdb_id. |
 | 0005 | `0005_custom_lists_relative_filters.py` | Added `custom_lists.year_last_n` and `added_last_n_days` — now-relative filter windows that override the absolute min/max columns. |
@@ -136,8 +139,9 @@ Postgres. Full incident stories (cooldown revert `c8991da`, enum bug `d8ae10c`) 
 
 ## Dockerfile anatomy — as coded
 
-`tech-stack.md` §Docker shows an **older draft**; trust `Dockerfile` (25 lines). Two stages,
-both `python:3.12-slim-bookworm`:
+`Dockerfile` (25 lines) is canonical — `tech-stack.md` §Docker now defers to it and matches it
+(its older draft, with a curl healthcheck among other drift, was fixed 2026-07-02; E8). Two
+stages, both `python:3.12-slim-bookworm`:
 
 | Stage | Contents |
 |---|---|
@@ -146,9 +150,10 @@ both `python:3.12-slim-bookworm`:
 
 **Healthcheck truth** (`Dockerfile:23-24`): a python one-liner —
 `python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status==200 else 1)"`
-with interval 30s / timeout 5s / start-period 10s. **`curl` is NOT installed in the image.**
-tech-stack.md shows a curl healthcheck — copying that into a compose override produces a
-container that is permanently `unhealthy`. Keep any healthcheck override python-based.
+with interval 30s / timeout 5s / start-period 10s. **`curl` is NOT installed in the image** —
+a curl-based healthcheck in a compose override produces a container that is permanently
+`unhealthy` (tech-stack.md used to show exactly that; fixed 2026-07-02, E8). Keep any
+healthcheck override python-based.
 
 The container ALWAYS listens on 8080 internally; there is no in-image port knob.
 
@@ -163,12 +168,14 @@ The container ALWAYS listens on 8080 internally; there is no in-image port knob.
 | Env | `env_file: .env` | `env_file: .env` |
 
 - `HTTP_PORT` moves ONLY the host side of the mapping; a fresh clone defaults to **8080** — on
-  a fresh clone `curl :8088/healthz` fails. The `:8088` sprinkled through CLAUDE.md/workflows.md
-  is owner-box-only; the full port truth and the QC loop live in `watchlistarr-run-and-operate`.
+  a fresh clone `curl :8088/healthz` fails. `:8088` is owner-box-only (uncommitted `.env` with
+  `HTTP_PORT=8088`); CLAUDE.md/workflows.md used to present `:8088` as the QC default (fixed
+  2026-07-02, E27 — both now say 8080 on a fresh clone). Full port truth and the QC loop:
+  `watchlistarr-run-and-operate`.
 - Both files hard-require `.env` (`env_file:` without `required: false`) — `docker compose up`
   errors on a clone until you `cp .env.example .env`. Inside the container the Dockerfile's
   4-slash `DATABASE_URL` and `.env.example`'s agree, so the Docker path needs no URL edit; the
-  `USER_AGENT` deletion from the setup section still applies.
+  legacy `USER_AGENT` check from the setup section still applies to pre-2026-07 `.env` copies.
 
 ## Image publishing (CI `docker` job)
 
@@ -225,7 +232,7 @@ Re-verify each fact before relying on it after future commits:
 | Healthcheck is python, DATABASE_URL 4-slash, port 8080 | `grep -n "HEALTHCHECK\|DATABASE_URL\|EXPOSE\|CMD" Dockerfile` |
 | Compose port mapping + env_file | `grep -n "ports\|env_file\|image\|build" -A1 docker-compose.yml docker-compose.dev.yml` |
 | Docker job trigger + tag matrix | `sed -n '49,101p' .github/workflows/ci.yml` |
-| `.env.example` traps (4-slash URL, UA pin) | `grep -n "DATABASE_URL\|USER_AGENT" .env.example; grep -in "database_url\|user_agent" src/watchlistarr/config.py` |
+| `.env.example` trap (4-slash URL) + legacy UA pin gone (expect `USER_AGENT` only as a commented example since 2026-07-02) | `grep -n "DATABASE_URL\|USER_AGENT" .env.example; grep -in "database_url\|user_agent" src/watchlistarr/config.py` |
 | `http_port` still dead code | `grep -rn "http_port" src/ scripts/` |
 | No-bundler rule | `grep -n "bundler\|Babel" .claude/rules.md` |
 | Vendor contents | `ls src/watchlistarr/static/vendor/` |

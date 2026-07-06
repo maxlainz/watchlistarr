@@ -51,9 +51,10 @@ Rules and pitfalls:
   does not override FastAPI's default slash-redirect behavior, so a slashless request gets a
   redirect rather than the payload directly — whether Radarr follows it is untested here; do not
   rely on it.
-- **`/list/<list_id>` and `/radarr/list/{id}` DO NOT EXIST.** `workflows.md` L42-43 and
-  `versioning.md` L10 currently claim they do — wrong as of 2026-07, see the standing errata table
-  in `watchlistarr-docs-and-writing`.
+- **`/list/<list_id>` and `/radarr/list/{id}` DO NOT EXIST** — and never did. `workflows.md` and
+  `versioning.md` previously claimed them (fixed 2026-07-02; E25/E36 in
+  `watchlistarr-docs-and-writing`) — both docs now list the three real routes. Old Radarr configs
+  or notes may still carry the fictional URLs.
 - **RESERVED_USERNAMES guard**: the two `{username}` routes return a bare 404 when
   `username in RESERVED_USERNAMES` — the frozenset `{"all", "api", "admin", "static", "health",
   "_", "lists"}` (`src/watchlistarr/services/scrape/initial_run.py:15-17`, checked at
@@ -95,9 +96,9 @@ Why it looks like this:
   fail loudly at construction time.
 - **ETag / 304**: `compute_etag` returns `W/"<sha1-hex-of-payload-bytes>"`; the route compares the
   raw `If-None-Match` header by exact string equality and returns 304 with the ETag header on a hit
-  (`routes/api/radarr.py:26-36`). This is IMPLEMENTED and smoke-tested (`smoke.py:374-377`) —
-  `radarr-custom-list.md` L137-139 still calls it future work; that is stale (errata in
-  `watchlistarr-docs-and-writing`). Note Radarr itself does not currently send `If-None-Match`
+  (`routes/api/radarr.py:26-36`). This is IMPLEMENTED and smoke-tested (`smoke.py:374-377`);
+  `radarr-custom-list.md` L137-139 now documents it as implemented (it previously called it
+  future work — fixed 2026-07-02; E35). Note Radarr itself does not currently send `If-None-Match`
   (community observation recorded in `radarr-custom-list.md` L138, unverified against current Radarr).
 
 ## How Radarr parses the payload (two providers, one URL)
@@ -164,10 +165,10 @@ Custom-list ordering rules at serve (`serialize_custom_list`, `services/radarr.p
 3. **Everything else** (`LETTERBOXD`, `REVERSE`, `RANDOM`, enum at `models/enums.py:47-51`): serve
    persisted `position, tmdb_id` — those sorts are baked into positions at materialization.
 
-Note the drift trap: `radarr-custom-list.md` §"Filtros aplicados antes de servir" (L142-150)
-describes serve-time sort/max/watched-exclusion on `GET /list/<list_id>` — that is pre-multi-source
-fiction. Raw lists get NO serve-time policy at all; see the standing errata table in
-`watchlistarr-docs-and-writing`.
+Raw lists get NO serve-time policy at all. (`radarr-custom-list.md` §"Políticas al servir: raw vs
+custom" now states this correctly; its old "Filtros aplicados antes de servir" section described
+pre-multi-source serve-time sort/max/watched-exclusion on a fictional `GET /list/<list_id>` —
+fixed 2026-07-02; E34.)
 
 ## The mass-delete risk (why this project exists)
 
@@ -189,8 +190,7 @@ from a synced import list. Consequences for watchlistarr:
 ## Configuring Radarr (Radarr side)
 
 1. In Radarr: **Settings → Import Lists → ➕** → choose **Custom Lists** (recommended: resolves by
-   TMDB id) or **StevenLu Custom** (requires imdb_id coverage, see above). The "Settings → Lists"
-   path in `workflows.md` L42 is an erratum.
+   TMDB id) or **StevenLu Custom** (requires imdb_id coverage, see above).
 2. **List URL** — exact, WITH trailing slash:
    - `http://<host>:<port>/lists/<slug>/` for a custom list,
    - `http://<host>:<port>/<username>/watchlist/` for a user watchlist,

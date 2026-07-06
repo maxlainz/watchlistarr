@@ -73,7 +73,8 @@ Never push without running the full local gate. The 5 CI steps (`.github/workflo
 `uv sync --frozen` then `uv run ruff check src tests` · `uv run ruff format --check src tests` ·
 `uv run mypy src` · `uv run pytest --cov=src/watchlistarr --cov-report=term` ·
 `uv run python scripts/smoke.py`. House rule adds `scripts` to both ruff invocations locally
-(CI does not lint scripts — asymmetry is a known erratum).
+(CI does not lint scripts — a deliberate local-stricter asymmetry, documented as such in
+`rules.md` §CI and `workflows.md` since 2026-07-02; formerly erratum E1).
 
 Single local block (from `rules.md:21-29`):
 
@@ -141,13 +142,12 @@ but steps 2–3 still apply as verification: the asserts must still pass unchang
 
 ## What makes a change BREAKING here
 
-Per `.claude/versioning.md:9-16` — with one correction:
+Per `.claude/versioning.md:9-16`:
 
-> **Erratum**: `versioning.md:10` currently claims the Radarr endpoint is `/radarr/list/{id}` — wrong
-> as of 2026-07 (so is `workflows.md:43`'s `/list/<list_id>`); see the standing errata table in
-> `watchlistarr-docs-and-writing`. The real stable surfaces are `/lists/{slug}/`,
-> `/{username}/watchlist/`, `/{username}/{slug}/` (`routes/api/radarr.py:39,54,81`), mounted at app
-> root (`main.py:103`).
+> The stable surfaces are `/lists/{slug}/`, `/{username}/watchlist/`, `/{username}/{slug}/`
+> (`routes/api/radarr.py:39,54,81`), mounted at app root (`main.py:103`) — `versioning.md` now
+> lists exactly these. (It previously named a nonexistent `/radarr/list/{id}`, and `workflows.md` a
+> `/list/<list_id>` — fixed 2026-07-02; E36/E25 in `watchlistarr-docs-and-writing`.)
 
 **MAJOR** (breaking):
 - Any incompatible change to the Radarr surface: URL scheme, JSON shape, `imdb_id` omission
@@ -277,7 +277,7 @@ Facts here drift with the repo. Re-verify before trusting (all from repo root):
 | smoke.py Radarr assert block | `grep -n 'watchlist/\|/lists/\|If-None-Match' scripts/smoke.py` |
 | Radarr integration test exists | `ls tests/integration/test_radarr_routing.py` |
 | SemVer table + release steps + v1.2.2 pitfall | `cat .claude/versioning.md` |
-| versioning.md URL erratum still unfixed? | `grep -n 'radarr/list' .claude/versioning.md` (hit ⇒ erratum stands) |
+| versioning.md URL fix holds (E36, fixed 2026-07-02) | `grep -n 'radarr/list' .claude/versioning.md` (expect no hits; a hit ⇒ the doc regressed) |
 | Double-bump pair in sync | `grep -n '^version' pyproject.toml && cat src/watchlistarr/__init__.py` |
 | Current migration head / next `--rev-id` | `ls alembic/versions/ \| sort \| tail -1` |
 | Boot-time `upgrade head` | `grep -n 'command.upgrade' src/watchlistarr/main.py` |

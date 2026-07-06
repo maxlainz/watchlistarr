@@ -70,12 +70,11 @@ claims (see the last section) obey this same rule.
 | "Everything in the browser … Changes apply instantly, no restarts" | Toggle→immediate sync `src/watchlistarr/routes/api/v1.py:578-591`; SPA shell + bootstrap asserts `scripts/smoke.py:266-312`; `tests/integration/test_ui_smoke.py` | Partial — server side evidenced; no browser-driven test exercises the SPA itself |
 | "One small container — amd64 and arm64" | Multi-arch build `.github/workflows/ci.yml:96` (`platforms: linux/amd64,linux/arm64`) | Build evidenced; "small" is unquantified — no image-size check exists |
 
-Known erratum in the same file: `README.md:112` says you can "force a refresh from the list's
-⚙ menu" — **no per-list refresh button exists**. Real mechanisms: toggle the list off→on
-(`src/watchlistarr/routes/api/v1.py:578-591`) or `POST /admin/refresh/{job_id}`
-(`src/watchlistarr/routes/api/admin.py:8`). See the standing errata table in
-`watchlistarr-docs-and-writing`. This is exactly the failure mode the rule exists to prevent: a
-claim nobody could demonstrate.
+History: `README.md:112` once promised a per-list ⚙ refresh button that never existed (fixed
+2026-07-02; E30 in `watchlistarr-docs-and-writing`'s resolved list) — the canonical example of
+the failure mode this rule exists to prevent: a claim nobody could demonstrate. (The button still
+does not exist; the real mechanisms are toggle off→on, `routes/api/v1.py:578-591`, or
+`POST /admin/refresh/{job_id}`, `routes/api/admin.py:8`.)
 
 ## Ranked frontier bets
 
@@ -311,7 +310,7 @@ before relying on any of them:
 | `scrape_runs.error` free text, no kind column | `grep -n "error" src/watchlistarr/models/scrape_runs.py` |
 | WAL/busy_timeout pragmas | `grep -n "PRAGMA" src/watchlistarr/db.py` |
 | Fixtures corpus inventory | `ls tests/fixtures/` |
-| README feature bullets + refresh-button erratum | `sed -n '14,22p;110,114p' README.md` |
+| README feature bullets (and L112 still refresh-button-free) | `sed -n '14,22p;110,114p' README.md` |
 | Rating filter untested (THIN verdict) | `grep -rn "min_rating" tests/ scripts/` — no output means still untested |
 | `hypothesis` not yet a dependency (B1 step 1) | `grep -n "hypothesis" pyproject.toml` — no output means still absent |
 | Multi-arch build claim | `grep -n "platforms" .github/workflows/ci.yml` |
@@ -319,5 +318,6 @@ before relying on any of them:
 
 Maintenance triggers: update the claims-evidence table whenever `README.md:14-21` changes; when
 a bet's "you have a result when" test lands, mark the bet **graduated** here and hand ongoing
-work to `watchlistarr-hardening-campaign` / normal change flow; when the README erratum
-(`README.md:112`) is fixed, drop the erratum note and sync with `watchlistarr-docs-and-writing`.
+work to `watchlistarr-hardening-campaign` / normal change flow. (The README refresh-button
+erratum was fixed 2026-07-02 and its note here was dropped per this trigger, keeping only the
+one-line history above.)

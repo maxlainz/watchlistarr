@@ -331,8 +331,8 @@ resolved in `services/intervals.py`. **Settings precedence**: interval overrides
 falls through to the env default; ONLY `flap_confirm_scrapes` resolves via `is None`, so a
 stored 0 is honored there (the API coerces 0→None; anti-flap treats threshold 0 like 1).
 (`services/intervals.py:10-41`) **Fence:** do not reintroduce a global runtime-settings table.
-tech-stack.md still describes the old table — wrong as of 2026-07, see the standing errata
-table in `watchlistarr-docs-and-writing`. Precedence details: `watchlistarr-config-and-flags`.
+tech-stack.md previously described the old table (fixed 2026-07-02; E4 in
+`watchlistarr-docs-and-writing`). Precedence details: `watchlistarr-config-and-flags`.
 
 ### HTMX + Pico → React SPA (~12 hours after the MVP, same day)
 

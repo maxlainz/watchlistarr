@@ -25,7 +25,7 @@ Runbook for starting, watching, poking, and backing up a watchlistarr instance (
 
 ## Port truth — determine `$PORT` first
 
-The container process **always listens on 8080** (hardcoded in `Dockerfile:25`; the `HTTP_PORT` setting is dead code in Python). `HTTP_PORT` only moves the **host-side** compose mapping (`"${HTTP_PORT:-8080}:8080"` in both `docker-compose.yml:7` and `docker-compose.dev.yml:8`) or the `--port` arg you pass to uvicorn locally. The owner's box maps **8088**, presumably via an uncommitted `.env` setting `HTTP_PORT=8088` (unverified — `.env` is gitignored); a fresh clone defaults to **8080**. Never hardcode 8088 in anything you write.
+The container process **always listens on 8080** (hardcoded in `Dockerfile:25`; the `HTTP_PORT` setting is dead code in Python). `HTTP_PORT` only moves the **host-side** compose mapping (`"${HTTP_PORT:-8080}:8080"` in both `docker-compose.yml:7` and `docker-compose.dev.yml:8`) or the `--port` arg you pass to uvicorn locally. The owner's box maps **8088** via an uncommitted `.env` setting `HTTP_PORT=8088` (documented in `workflows.md` §Refresh local since 2026-07-02: their 8080 is taken by another service); a fresh clone defaults to **8080**. Never hardcode 8088 in anything you write.
 
 ```bash
 PORT=$(sed -n 's/^HTTP_PORT=//p' .env 2>/dev/null); PORT=${PORT:-8080}
@@ -113,7 +113,7 @@ curl -s "http://127.0.0.1:$PORT/api/v1/dashboard" | jq '{upcoming, recentActivit
 
 ## Manual triggers
 
-There is **NO per-list "Refresh" button in the UI** — README and `.claude/workflows.md` claim one; that is a standing erratum (see the errata table in `watchlistarr-docs-and-writing`). The real mechanisms:
+There is **NO per-list "Refresh" button in the UI** (README and `.claude/workflows.md` used to claim one — fixed 2026-07-02; E26/E30 in `watchlistarr-docs-and-writing`'s resolved list). The real mechanisms:
 
 ### `POST /admin/refresh/{job_id}` — run a job now, inline
 

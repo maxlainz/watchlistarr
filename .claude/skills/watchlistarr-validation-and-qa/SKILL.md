@@ -31,8 +31,8 @@ checkout (`uv sync` first — see `watchlistarr-build-and-env`).
 **The 5 CI steps** (`.github/workflows/ci.yml`): `uv sync --frozen` then
 `uv run ruff check src tests` · `uv run ruff format --check src tests` · `uv run mypy src` ·
 `uv run pytest --cov=src/watchlistarr --cov-report=term` · `uv run python scripts/smoke.py`.
-House rule adds `scripts` to both ruff invocations locally (CI does not lint scripts — asymmetry
-is a known erratum).
+House rule adds `scripts` to both ruff invocations locally (CI does not lint scripts — a
+deliberate asymmetry, documented in `rules.md` §CI since 2026-07-02; formerly erratum E1).
 
 The house pre-push one-liner (`.claude/rules.md:21-29`, verbatim):
 

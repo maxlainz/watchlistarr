@@ -122,11 +122,12 @@ Feed: `GET /{username}/rss/` (`scrape/rss_watcher.py:27`), parsed with feedparse
 | `letterboxd:memberRating` → optional float; `letterboxd:memberLike` → `Yes`/`No` bool; review-ness inferred from the guid prefix | `rss.py:58-66,82` |
 | New events insert `viewing_logs` rows and upsert `watched_films` with `source='rss'` | `rss_watcher.py:69-96` |
 
-**RSS does NOT trigger rotation.** `.claude/letterboxd-rss.md` claims the watcher "dispara la
-rotación" — wrong as of 2026-07 (see the standing errata table in `watchlistarr-docs-and-writing`).
-`poll_rss_for_user` only writes `viewing_logs` + `watched_films`; rotation happens in the
-independent `rotation-tick` scheduler job, and watched-status is consulted there and by anti-flap.
-The same doc's "Botón Refrescar" mitigation is also fiction — no per-list refresh button exists.
+**RSS does NOT trigger rotation.** `poll_rss_for_user` only writes `viewing_logs` +
+`watched_films`; rotation happens in the independent `rotation-tick` scheduler job, and
+watched-status is consulted there and by anti-flap. There is also **no per-list refresh button** —
+the real manual trigger is `POST /admin/refresh/rss-{user_id}`. (`.claude/letterboxd-rss.md`
+previously claimed the watcher "dispara la rotación" and offered a UI "Botón Refrescar" — both
+fixed 2026-07-02; E41/E26.)
 
 ## Film page resolution (`/film/{slug}/`)
 
@@ -166,8 +167,9 @@ Read `services/letterboxd/client.py` before believing any doc:
 - Timeout 30 s (`client.py:16`); redirects followed (`client.py:41`).
 - User-Agent comes from `Settings.user_agent`, default
   `watchlistarr/{__version__} (+https://github.com/maxlainz/watchlistarr)` (`config.py:46`).
-  `.env.example` pins an outdated `watchlistarr/1.0.0` — do not copy that pin (errata; see
-  `watchlistarr-docs-and-writing`).
+  `.env.example` previously pinned an outdated `watchlistarr/1.0.0` (fixed 2026-07-02, E33 — the
+  line is now a commented `x.y.z` example); a `.env` copied before 2026-07 may still carry the
+  stale pin — delete `USER_AGENT` from such copies so the versioned default applies.
 
 ## Anti-bot etiquette (house law — `.claude/rules.md` §"Scraping de Letterboxd")
 
@@ -209,18 +211,20 @@ change a parser, update its fixture in the same commit only when the live markup
 | `films_p1.html` | `/{user}/films/` page 1 — griditems plus `poster-viewingdata` rating/like blocks (which the parser ignores) | `tests/unit/letterboxd/test_films.py`, `test_scrape_watchlist.py` (backstop), `test_scrape_concurrency.py` |
 | `rss_feed.xml` | RSS feed with all 4 item shapes: watch without rating, review with rating 4.5, `letterboxd-list-` item (ignored), TV watch with `tmdb:tvId` only (skipped) | `tests/unit/letterboxd/test_rss.py`, `tests/integration/test_scrape_rss.py` |
 
-## Known doc errata in this area (do not propagate)
+## Area doc-errata history (all fixed 2026-07-02)
 
-`.claude/letterboxd-lists.md` and `.claude/letterboxd-rss.md` are largely accurate on markup and
-observed Cloudflare behavior, but wrong as of 2026-07 on three points (full standing errata table:
-`watchlistarr-docs-and-writing`):
+`.claude/letterboxd-lists.md` and `.claude/letterboxd-rss.md` are accurate on markup and observed
+Cloudflare behavior, and as of 2026-07-02 their former drift points were fixed in the docs of
+record (resolved errata list: `watchlistarr-docs-and-writing`). The underlying **code facts remain
+true** and both docs now state them:
 
-- There is **no `LETTERBOXD_USER` env var** (lists.md L9). Users are created via
+- There is **no `LETTERBOXD_USER` env var** (formerly E37). Users are created via
   `POST /api/v1/users` and validated with `validate_username`.
-- There is **no "paste a URL" fallback** for private lists (lists.md L96, L249). Lists come only
-  from discovery + enable toggle; private lists are simply unsupported.
+- There is **no "paste a URL" fallback** for private lists (formerly E39; now framed as an
+  unimplemented candidate). Lists come only from discovery + enable toggle; private lists are
+  simply unsupported.
 - The **RSS watcher does not trigger rotation** and there is **no per-list Refresh button**
-  (rss.md L3, L150, L166). See the RSS section above for what actually happens.
+  (formerly E41/E26). See the RSS section above for what actually happens.
 
 ## Provenance and maintenance
 
