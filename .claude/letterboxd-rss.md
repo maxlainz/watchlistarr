@@ -1,6 +1,6 @@
 # RSS de usuario de Letterboxd
 
-watchlistarr usa el RSS público de cada usuario de Letterboxd como fuente del **RSS watcher**: el componente que detecta cuándo el usuario ha marcado una película como vista y dispara la rotación en las listas configuradas.
+watchlistarr usa el RSS público de cada usuario de Letterboxd como fuente del **RSS watcher**: el componente que detecta cuándo el usuario ha marcado una película como vista y lo persiste en DB (`viewing_logs` + `watched_films`, ver `services/scrape/rss_watcher.py`). El poll **no dispara nada más**: ese estado lo consumen después el anti-flap de los full scrapes (visto por el owner → eliminación inmediata de la raw list) y las custom lists con `excluded_watchers` (el film cae en su siguiente rotación/recálculo).
 
 > Letterboxd no documenta este RSS oficialmente. Todo lo que sigue se ha verificado fetcheando `https://letterboxd.com/maxlainz/rss/` y observando 22 ítems reales. El formato puede cambiar sin aviso — revisar este doc cada vez que toquemos el watcher o veamos un campo nuevo.
 
@@ -41,7 +41,7 @@ Se distinguen por el prefijo del `<guid>`:
 
 | Prefijo del GUID | Tipo | Qué hace watchlistarr |
 |---|---|---|
-| `letterboxd-watch-<id>` | watch | Procesar: dispara rotación si la película está en alguna lista con rotación activada |
+| `letterboxd-watch-<id>` | watch | Procesar: upsert en `viewing_logs` + `watched_films` (estado que luego consumen el anti-flap y las custom lists con `excluded_watchers`) |
 | `letterboxd-review-<id>` | review | Procesar igual que `watch` (también es una visualización; solo cambia que el usuario escribió texto) |
 | `letterboxd-list-<id>` | list | Ignorar — las listas del usuario se scrapean por separado desde su URL HTML |
 
@@ -51,7 +51,7 @@ Se distinguen por el prefijo del `<guid>`:
 
 | Elemento | Tipo | Obligatorio | Significado |
 |---|---|---|---|
-| `letterboxd:watchedDate` | `YYYY-MM-DD` | sí | Fecha en que se marcó como vista. **Campo clave para la rotación.** |
+| `letterboxd:watchedDate` | `YYYY-MM-DD` | sí | Fecha en que se marcó como vista. Se persiste en `viewing_logs.watched_date` |
 | `letterboxd:rewatch` | `Yes` / `No` | sí | Si el usuario marcó la peli como revisionado |
 | `letterboxd:filmTitle` | string | sí | Título sin año |
 | `letterboxd:filmYear` | entero | sí | Año del film |
@@ -146,14 +146,14 @@ watchlistarr **ignora** estos items en el watcher. Si el usuario quiere ingerir 
    - Si no:
      - Extraer `tmdb:movieId`, `letterboxd:watchedDate`, `<guid>`, opcionalmente `letterboxd:filmTitle` / `letterboxd:filmYear` para logging.
      - Si falta `tmdb:movieId` (caso teórico) o hay `tmdb:tvId` en lugar de `tmdb:movieId`: logear y saltar.
-     - Insertar en `watched_events` (o tabla equivalente).
-4. **Aplicar políticas**: el motor de listas, en su siguiente ciclo, cruza `watched_events` contra los items de cada lista con rotación activada y los retira.
+     - Insertar en `viewing_logs` + upsert en `watched_films` (clave `(user_id, tmdb_id)`).
+4. **Consumo diferido**: el poll termina ahí. Las eliminaciones llegan por otras vías: el anti-flap de los full scrapes cruza `watched_films` (visto por el owner → eliminación inmediata de la raw list), y las custom lists con `excluded_watchers` retiran el film en su siguiente rotación/recálculo.
 
 ## Edge cases
 
 - **Sin `letterboxd:memberRating`**: tolerar, no afecta a rotación.
 - **Series (`tmdb:tvId`)**: ignorar; Radarr es solo películas.
-- **Multiple viewings del mismo film**: cada uno genera un `<guid>` distinto. Todos se registran como eventos separados; la rotación se dispara con cualquiera de ellos (y al haber dedupe por `tmdb_id` en la lista, una vez retirada no vuelve aunque haya más eventos).
+- **Multiple viewings del mismo film**: cada uno genera un `<guid>` distinto. Todos se registran como filas separadas en `viewing_logs`; en `watched_films` hay una sola fila por `(user_id, tmdb_id)` (los eventos posteriores solo refrescan `last_seen_watched_at`), así que los revisionados no cambian nada aguas abajo.
 - **Timezone variable**: el mismo feed puede mezclar `+1200` y `+1300` cuando el usuario está en zona con horario de verano. Parsear como datetime con tz y normalizar a UTC en DB.
 - **Caracteres especiales** (`Sirāt`, comillas tipográficas, acentos): UTF-8 en todo el feed; sin sorpresas si el parser respeta la declaración del XML.
 
@@ -163,7 +163,7 @@ watchlistarr **ignora** estos items en el watcher. Si el usuario quiere ingerir 
 - **Implicación**: si watchlistarr corre con poca frecuencia y el usuario es muy activo, pueden perderse eventos que ya hayan caído fuera de la ventana.
 - **Mitigación**:
   - Polling frecuente (15 min default).
-  - Botón "Refrescar" en la UI para forzar fetch manual.
+  - Forzar fetch manual: `POST /admin/refresh/rss-<user_id>`. Candidato (no implementado): botón "Refrescar" en la UI.
   - Documentar el límite como conocido — no es un bug del watcher.
 
 ## Referencias

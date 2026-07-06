@@ -7,7 +7,7 @@ Reglas para cortar releases de watchlistarr. Leer antes de bumpear versión o pu
 Formato `MAJOR.MINOR.PATCH`. Mientras estemos en `0.x.y`, está permitido romper compatibilidad en MINOR — pero hay que documentarlo en el CHANGELOG.
 
 - **MAJOR**: cambios incompatibles en superficies estables.
-  - Endpoint Radarr (`/radarr/list/{id}` y la forma del JSON).
+  - Endpoints servidos a Radarr (`/{user}/{slug}/`, `/{user}/watchlist/`, `/lists/{slug}/`) y la forma del JSON.
   - Env vars obligatorias renombradas o eliminadas.
   - Esquema DB sin migración Alembic automática.
 - **MINOR**: nueva funcionalidad backwards-compatible.

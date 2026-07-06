@@ -40,7 +40,7 @@ Al cargar, App.jsx hace `GET /api/v1/bootstrap` (single round-trip que devuelve 
 - Form "Add user" con prefijo mono `letterboxd.com/` baked in, validación contra Letterboxd antes de persistir.
 - Search inline filtra por username.
 - Tabla: avatar + `@username` + path mono · "N of M" listas habilitadas (badge ámbar si N>0) · total · added (relativo) · ⚙ + 🗑.
-- Fila click → User detail. Add lanza `_initial_run_in_background` (ensure watchlist row + discovery + films-backstop) y muestra toast.
+- Fila click → User detail. Add lanza `schedule_initial_run` → `_initial_run` en background (ensure watchlist row + discovery + films-backstop + full sync de **todas** las listas descubiertas, todas `enabled=False`; ver [`sync-strategy.md`](sync-strategy.md)) y muestra toast.
 
 ### User detail
 - Header con avatar grande + path mono + acciones (Delete).
@@ -99,7 +99,7 @@ Save → `POST /api/v1/custom-lists` (nuevo) o `PUT /api/v1/custom-lists/<slug>`
 
 | Acción | Endpoint | Notas |
 |---|---|---|
-| Add user | `POST /api/v1/users` | Valida en Letterboxd + lanza background discovery; nada queda enabled |
+| Add user | `POST /api/v1/users` | Valida en Letterboxd + lanza el initial run en background (discovery + full sync de lo descubierto); nada queda enabled |
 | Delete user | `DELETE /api/v1/users/{u}` | Cascade vía SQLAlchemy |
 | Enable/Disable list | `POST /api/v1/users/{u}/lists/{id}/toggle` | Re-syncea los jobs del scheduler |
 | Edit per-list settings | `POST /api/v1/users/{u}/lists/{id}/settings` | Body JSON con `incrementalInterval`, `fullInterval`, `flapConfirmScrapes` en horas/integer |
@@ -113,12 +113,13 @@ Save → `POST /api/v1/custom-lists` (nuevo) o `PUT /api/v1/custom-lists/<slug>`
 
 Variables de proceso (necesarias antes de que la app arranque su web):
 
-- `HTTP_PORT` — puerto del servidor web.
+- `HTTP_PORT` — solo mueve el mapping host-side de compose (o el `--port` en dev); el contenedor escucha **siempre** en 8080 y `Settings.http_port` no lo lee ningún código de la app (dead code).
 - `LOG_LEVEL` / `LOG_FORMAT` — config de logging.
 - `DATABASE_URL` — path del volumen de DB.
 - `USER_AGENT` — UA con el que watchlistarr se identifica a Letterboxd.
+- `LETTERBOXD_OFFLINE` — kill-switch que bloquea todo HTTP a Letterboxd (lo usa `scripts/smoke.py`).
 - `ROTATION_TICK_INTERVAL` — ritmo del worker de rotación.
-- `RSS_INTERVAL`, `DISCOVERY_INTERVAL`, `FILMS_BACKSTOP_INTERVAL` — son por-user pero solo se configuran via env (no expuestos en UI).
+- `RSS_INTERVAL`, `DISCOVERY_INTERVAL`, `FILMS_BACKSTOP_INTERVAL` — el default es env; existen columnas de override por-user que el scheduler honra, pero ningún endpoint/UI las expone (solo editables tocando la DB; candidato no implementado).
 - `FLAP_CONFIRM_SCRAPES` — default global, admite override por lista en la pestaña Lists → Advanced.
 
 Todas las custom lists viven en `/lists/<slug>/`. **Ya no existen** las URLs `/all/watchlist/<combo>/` ni `/all/<slug>/` — rotura intencional al introducir multi-source. Tras desplegar este cambio, hay que reconfigurar Radarr con las nuevas URLs.
